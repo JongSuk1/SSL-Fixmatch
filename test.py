@@ -144,9 +144,3 @@ if __name__ == '__main__':
     main()
             
         
-#python test.py --reuse --name Res18_kaist_naver_prod200k2_C265_tr01_0317_SGD_bs128_LR5e3_noRELU_triplet --gpu_ids 4
-# Test evaluation Top1_acc_test:84.03% Top5_acc_test:93.09% 
-#python test.py --reuse --name Res18_kaist_naver_prod200k2_C265_tr03_0317_SGD_bs128_LR5e3_noRELU_triplet --gpu_ids 4
-# Test evaluation Top1_acc_test:90.64% Top5_acc_test:96.22% 
-#python test.py --reuse --name Res18_kaist_naver_prod200k2_C265_trall_0317_SGD_bs128_LR5e3_noRELU_triplet --gpu_ids 4
-# Test evaluation Top1_acc_test:93.50% Top5_acc_test:97.86%
