@@ -1,5 +1,5 @@
-Python 3.6.8
-torch 1.2.0
+- Python 3.6.8
+- torch 1.2.0
 
 ### for supervised classification
 ##### without triplet and ranking loss
