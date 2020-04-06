@@ -23,8 +23,8 @@ import torch.nn.functional as F
 
 import torchvision
 from torchvision import datasets, models, transforms
+from tensorboardX import SummaryWriter
 
-import tensorflow as tf
 import torch.nn.functional as F
 
 from ImageDataLoader import SimpleImageLoader, TripletImageLoader
@@ -60,16 +60,6 @@ class AverageMeter(object):
         self.sum += val * n
         self.count += n
         self.avg = self.sum / self.count
-        
-class SummaryWriter(object):
-    def __init__(self, log_dir):
-        self.log_dir = log_dir
-        self.summary_writer = tf.compat.v1.summary.FileWriter(log_dir) 
-    def add_scalar(self, tag, value, step):
-        summary = tf.compat.v1.Summary()
-        summary.value.add(tag=tag, simple_value=value)
-        self.summary_writer.add_summary(summary, step)
-        self.summary_writer.flush()
         
 def adjust_learning_rate(opts, optimizer, epoch):
     """Sets the learning rate to the initial LR decayed by 10 every 30 epochs"""
@@ -130,7 +120,7 @@ parser.add_argument('--datadir',default='/home1/irteam/users/shine0624/kaist-nav
 parser.add_argument('--start_epoch', type=int, default=1, metavar='N', help='number of start epoch (default: 1)')
 parser.add_argument('--epochs', type=int, default=200, metavar='N', help='number of epochs to train (default: 10)')
 
-parser.add_argument('--gpu_ids',default='0', type=str,help='gpu_ids: e.g. 0  0,1,2  0,2')
+parser.add_argument('--gpu_ids',default='0,1', type=str,help='gpu_ids: e.g. 0  0,1,2  0,2')
 parser.add_argument('--batchsize', default=200, type=int, help='batchsize')
 
 parser.add_argument('--momentum', type=float, default=0.9, metavar='LR', help=' ')
@@ -224,7 +214,8 @@ def main():
     # Set model
     ##########################
     class_numbers = train_loader.dataset.classnumber
-    model = Res18_basic(class_numbers)    
+    model = Res18_basic(class_numbers)
+    model = torch.nn.DataParallel(model)    
     parameters = filter(lambda p: p.requires_grad, model.parameters())
     n_parameters = sum([p.data.nelement() for p in model.parameters()])
     print('  + Number of params: {}'.format(n_parameters))            
@@ -235,7 +226,6 @@ def main():
     ##########################
     # Set optimizer
     ##########################    
-    writer = SummaryWriter( 'runs/%s/' % (opts.name) )    
     
     # Set optimizer
     optimizer = optim.Adam(model.parameters(), lr=opts.lr)
@@ -248,6 +238,8 @@ def main():
     scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer,  milestones=[50, 150], gamma=0.1)   
     
     best_acc = 0.0
+
+    writer = SummaryWriter()
     
     for epoch in range(opts.start_epoch, opts.epochs + 1):    
         scheduler.step()

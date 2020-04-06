@@ -5,7 +5,7 @@ from PIL import Image
 from PIL import ImageFile
 ImageFile.LOAD_TRUNCATED_IMAGES = True
 
-fileroot = '/home1/irteam/users/shine0624/kaist-naver/kaist_naver_product200k' #set your location
+fileroot = '/mnt/home/20170419/ssl/meta/' #set your location
 metafile = 'kaist_naver_prod200k_class265_meta_alldata.txt'
 
 temp_folder = os.path.join(fileroot,'temp')
