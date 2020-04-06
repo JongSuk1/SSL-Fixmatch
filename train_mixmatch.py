@@ -162,7 +162,8 @@ def main():
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
-    
+    torch.cuda.manual_seed_all(seed)
+
     os.environ['CUDA_VISIBLE_DEVICES'] = opts.gpu_ids
     use_gpu = torch.cuda.is_available()
     if use_gpu:

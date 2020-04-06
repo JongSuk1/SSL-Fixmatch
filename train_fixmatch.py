@@ -107,7 +107,19 @@ def interleave(xy, batch):
         xy[0][i], xy[i][i] = xy[i][i], xy[0][i]
     return [torch.cat(v, dim=0) for v in xy]
 
+def get_cosine_schedule_with_warmup(optimizer,
+                                    num_warmup_steps,
+                                    num_training_steps,
+                                    num_cycles=7./16.,
+                                    last_epoch=-1):
+    def _lr_lambda(current_step):
+        if current_step < num_warmup_steps:
+            return float(current_step) / float(max(1, num_warmup_steps))
+        no_progress = float(current_step - num_warmup_steps) / \
+            float(max(1, num_training_steps - num_warmup_steps))
+        return max(0., math.cos(math.pi * num_cycles * no_progress))
 
+    return LambdaLR(optimizer, _lr_lambda, last_epoch)
 
 ######################################################################
 # Options
@@ -234,8 +246,8 @@ def main():
     ##########################    
     
     # Set optimizer
-    optimizer = optim.Adam(model.parameters(), lr=opts.lr)
-    #optimizer = optim.SGD(model.parameters(), lr=opts.lr,  momentum=opts.momentum )
+    #optimizer = optim.Adam(model.parameters(), lr=opts.lr)
+    optimizer = optim.SGD(model.parameters(), lr=opts.lr,  momentum=opts.momentum )
     
     # INSTANTIATE LOSS CLASS
     train_criterion = SemiLoss()
@@ -319,15 +331,24 @@ def train(opts, train_loader, unlabel_loader, model, criterion, optimizer, epoch
 
             
         optimizer.zero_grad()
+        x_criterion = nn.CrossEntropyLoss().cuda()
+        u_criterion = nn.CrossEntropyLoss(reduction='none').cuda()
 
-        Lx = F.cross_entropy(model(inputs_x)[1], targets_x, reduction='mean')
-        Lu = (F.cross_entropy(model(inputs_u2)[1], targets_u, reduction='none') * mask).mean()
+        x_embed, x_pred = model(inputs_x)
+        Lx = x_criterion(x_pred, targets_x)
+        
+        u_embed, u_pred = model(inputs_u2)
+        Lu = (u_criterion(u_pred, targets_u) * mask).mean()
 
         loss = Lx + opts.lambda_u * Lu
         
         # compute gradient and do SGD step
         loss.backward()
         optimizer.step()
+        
+        losses.update(loss.item(), inputs_x.size(0))
+        losses_x.update(Lx.item(), inputs_x.size(0))
+        losses_un.update(Lu.item(), inputs_x.size(0))
         
         with torch.no_grad():
             # compute guessed labels of unlabel samples
