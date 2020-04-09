@@ -20,43 +20,38 @@ class TransformTwice:
 ###################################################################################
 
 class FixMatchImageLoader(torch.utils.data.Dataset):
-    def __init__(self, args, split, transform=None, loader=default_image_loader, strong_transform=None):
-        rootdir = os.path.join(args.datadir)
-        self.impath = os.path.join(args.datadir, 'downimages')
-        self.datasets = []
-        if split == 'train' : data_file = os.path.join(rootdir, '%s' % args.trainfile)
-        elif split == 'test' : data_file = os.path.join(rootdir, '%s' % args.testfile)            
-        elif split == 'validation' : data_file = os.path.join(rootdir, '%s' % args.validfile)    
-        elif split == 'unlabel' : data_file = os.path.join(rootdir, '%s' % args.unlabelfile)   
-        else: print('wrong split information')
-            
-        meta_file = os.path.join(rootdir, data_file)    
-        self.subpath_to_idx_dict = {}
-        identity_class= set()
+    def __init__(self, rootdir, split, ids=None, transform=None, strong_transform=None, loader=default_image_loader):
+        if split == 'test':
+            self.impath = os.path.join(rootdir, 'test_data')
+            meta_file = os.path.join(self.impath, 'test_meta.txt')
+        else:
+            self.impath = os.path.join(rootdir, 'train/train_data')
+            meta_file = os.path.join(rootdir, 'train/train_label')
+
         imnames = []
         imclasses = []
-        classindex = []
         
-        with open(meta_file, 'r') as rf:     
-            for idx, line in enumerate(rf):
-                if idx == 0:
+        with open(meta_file, 'r') as rf:
+            for i, line in enumerate(rf):
+                if i == 0:
                     continue
                 instance_id, label, file_name = line.strip().split()        
-                category_id = int(label)
-                self.subpath_to_idx_dict[file_name] = len(self.datasets)
-                self.datasets.append( (os.path.join(self.impath, file_name), int(category_id)) )                    
-                imnames.append(file_name)
-                imclasses.append(int(label))
-                identity_class.add(int(label))
+                if int(label) == -1 and (split != 'unlabel' and split != 'test'):
+                    continue
+                if int(label) != -1 and (split == 'unlabel' or split == 'test'):
+                    continue
+                if (ids is None) or (int(instance_id) in ids):
+                    if os.path.exists(os.path.join(self.impath, file_name)):
+                        imnames.append(file_name)
+                        if split == 'train' or split == 'val':
+                            imclasses.append(int(label))
 
         self.transform = transform
-        self.TransformTwice = TransformTwice(transform)
+        self.strong_transform = strong_transform
         self.loader = loader
         self.split = split
-        self.classnumber = len(identity_class)
         self.imnames = imnames
         self.imclasses = imclasses
-        self.strong_transform = strong_transform
     
     def __getitem__(self, index):
         filename = self.imnames[index]
@@ -70,155 +65,64 @@ class FixMatchImageLoader(torch.utils.data.Dataset):
 
         else:        
             img1, img2 = self.transform(img_name), self.strong_transform(img_name)
-            label = self.imclasses[index]  
-            return img1, img2, int(label)           
+            return img1, img2       
             
         
     def __len__(self):
         return len(self.imnames)               
 
-###################################################################################
-
-    
 class SimpleImageLoader(torch.utils.data.Dataset):
-    def __init__(self, args, split, transform=None, loader=default_image_loader):
-        rootdir = os.path.join(args.datadir)
-        self.impath = os.path.join(args.datadir, 'downimages')
-        self.datasets = []
-        if split == 'train' : data_file = os.path.join(rootdir, '%s' % args.trainfile)
-        elif split == 'test' : data_file = os.path.join(rootdir, '%s' % args.testfile)            
-        elif split == 'validation' : data_file = os.path.join(rootdir, '%s' % args.validfile)    
-        elif split == 'unlabel' : data_file = os.path.join(rootdir, '%s' % args.unlabelfile)   
-        else: print('wrong split information')
-            
-        meta_file = os.path.join(rootdir, data_file)    
-        self.subpath_to_idx_dict = {}
-        identity_class= set()
+    def __init__(self, rootdir, split, ids=None, transform=None, loader=default_image_loader):
+        if split == 'test':
+            self.impath = os.path.join(rootdir, 'test_data')
+            meta_file = os.path.join(self.impath, 'test_meta.txt')
+        else:
+            self.impath = os.path.join(rootdir, 'train/train_data')
+            meta_file = os.path.join(rootdir, 'train/train_label')
+
         imnames = []
         imclasses = []
-        classindex = []
         
-        with open(meta_file, 'r') as rf:     
-            for idx, line in enumerate(rf):
-                if idx == 0:
+        with open(meta_file, 'r') as rf:
+            for i, line in enumerate(rf):
+                if i == 0:
                     continue
                 instance_id, label, file_name = line.strip().split()        
-                category_id = int(label)
-                self.subpath_to_idx_dict[file_name] = len(self.datasets)
-                self.datasets.append( (os.path.join(self.impath, file_name), int(category_id)) )                    
-                imnames.append(file_name)
-                imclasses.append(int(label))
-                identity_class.add(int(label))
+                if int(label) == -1 and (split != 'unlabel' and split != 'test'):
+                    continue
+                if int(label) != -1 and (split == 'unlabel' or split == 'test'):
+                    continue
+                if (ids is None) or (int(instance_id) in ids):
+                    if os.path.exists(os.path.join(self.impath, file_name)):
+                        imnames.append(file_name)
+                        if split == 'train' or split == 'val':
+                            imclasses.append(int(label))
 
         self.transform = transform
         self.TransformTwice = TransformTwice(transform)
         self.loader = loader
         self.split = split
-        self.classnumber = len(identity_class)
         self.imnames = imnames
         self.imclasses = imclasses
     
     def __getitem__(self, index):
         filename = self.imnames[index]
-        img_name = self.loader(os.path.join(self.impath, filename))
+        img = self.loader(os.path.join(self.impath, filename))
         
-        if self.split != 'unlabel':
+        if self.split == 'test':
             if self.transform is not None:
-                img = self.transform(img_name)
-            label = self.imclasses[index]            
-            return img, int(label)
-
+                img = self.transform(img)
+            return img
+        elif self.split != 'unlabel':
+            if self.transform is not None:
+                img = self.transform(img)
+            label = self.imclasses[index]
+            return img, label
         else:        
-            img1, img2 = self.TransformTwice(img_name)
-            label = self.imclasses[index]  
-            return img1, img2, int(label)           
-            
+            img1, img2 = self.TransformTwice(img)
+            return img1, img2
         
     def __len__(self):
-        return len(self.imnames)               
-    
-class TripletImageLoader(torch.utils.data.Dataset):
-    def __init__(self, args, split, transform=None, loader=default_image_loader):
-        rootdir = os.path.join(args.datadir)
-        self.impath = os.path.join(args.datadir, 'images')
-        self.datasets = []
-
-        if split == 'train' : data_file = os.path.join(rootdir, '%s' % args.trainfile)
-        elif split == 'test' : data_file = os.path.join(rootdir, '%s' % args.testfile)            
-        elif split == 'validation' : data_file = os.path.join(rootdir, '%s' % args.validfile)      
-        elif split == 'unlabel' : data_file = os.path.join(rootdir, '%s' % args.unlabelfile)                  
-        else: 
-            print('wrong split information')
-            
-        meta_file = os.path.join(rootdir, data_file)    
-        self.subpath_to_idx_dict = {}
-        identity_class= set()
-        imnames = []
-        imclasses = []
-
-        classindex = []
-        with open(meta_file, 'r') as rf:     
-            for idx, line in enumerate(rf):
-                if idx == 0:
-                    continue
-                instance_id, label, file_name = line.strip().split()        
-                category_id = int(label)
-                self.subpath_to_idx_dict[file_name] = len(self.datasets)
-                self.datasets.append( (os.path.join(self.impath, file_name), int(category_id)) )                    
-                imnames.append(file_name)
-                imclasses.append(int(label))
-                identity_class.add(int(label))
-    
-        self.transform = transform
-        self.loader = loader
-        self.split = split
-        self.classnumber = len(identity_class)
-        self.imnames = imnames
-        self.imclasses = imclasses
-        
-    def _get_pos_sample(self, label, index):
-        pos_index = np.argwhere(np.asarray(self.imclasses) == label)
-        pos_index = pos_index.flatten()
-        pos_index = np.setdiff1d(pos_index, index)
-        rand = np.random.permutation(len(pos_index))
-        result_path = []
-        result_label = []
-        for ii in range(1):
-            tt = ii % len(rand)
-            tmp_index = pos_index[rand[tt]]
-            result_label.append(self.imclasses[tmp_index])
-            result_path.append(self.imnames[tmp_index])
-        return result_path, result_label
-        
-    def _get_neg_sample(self, label):
-        neg_index = np.argwhere(np.asarray(self.imclasses) != label)
-        neg_index = neg_index.flatten()
-        rand = np.random.permutation(len(neg_index))
-        result_path = [] 
-        result_label = []
-        for ii in range(1):    
-            tt = ii % len(rand)
-            tmp_index = neg_index[rand[tt]]  
-            result_label.append(self.imclasses[tmp_index])            
-            result_path.append(self.imnames[tmp_index])
-        return result_path , result_label   
-    
-    def __getitem__(self, index):
-        filename = self.imnames[index]
-        label = self.imclasses[index]   
-        pos_path, pos_label = self._get_pos_sample(label, index)
-        neg_path, neg_label = self._get_neg_sample(label) 
-
-        anc_name = self.loader(os.path.join(self.impath, filename))
-        pos_name = self.loader(os.path.join(self.impath, pos_path[0]))
-        neg_name = self.loader(os.path.join(self.impath, neg_path[0]))
-        if self.transform is not None:
-            img_anc = self.transform(anc_name)
-            img_pos = self.transform(pos_name)
-            img_neg = self.transform(neg_name)
-        return img_anc, int(label), img_pos, int(pos_label[0]), img_neg, int(neg_label[0])
-        
-    def __len__(self):
-        return len(self.imnames)               
+        return len(self.imnames)             
     
 
