@@ -212,7 +212,8 @@ def main():
     # Set dataloader
     ########################## 
     train_ids, val_ids, unl_ids = split_ids(os.path.join(DATASET_PATH, 'train/train_label'), 0.2)
-
+    print('found {} train, {} validation and {} unlabeled images'.format(len(train_ids), len(val_ids), len(unl_ids)))
+    # found 16078 train, 4019 validation and 39963 unlabeled images
     train_loader = torch.utils.data.DataLoader(
         SimpleImageLoader(DATASET_PATH, 'train', train_ids,
                           transform=transforms.Compose([
@@ -246,7 +247,7 @@ def main():
     print('unlabel_loader done')    
     
     validation_loader = torch.utils.data.DataLoader(
-        SimpleImageLoader(DATASET_PATH, 'validation', val_ids,
+        SimpleImageLoader(DATASET_PATH, 'val', val_ids,
                            transform=transforms.Compose([
                                transforms.Resize(opts.imResize),
                                transforms.CenterCrop(opts.imsize),
@@ -319,7 +320,7 @@ def train(opts, train_loader, unlabel_loader, model, criterion, optimizer, epoch
     labeled_train_iter = iter(train_loader)
     unlabeled_train_iter = iter(unlabel_loader)
     
-    for batch_idx in range(opts.val_iteration):
+    for batch_idx in range(len(train_loader)):
         try:
             data = labeled_train_iter.next()
             inputs_x, targets_x = data
