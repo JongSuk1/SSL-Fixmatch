@@ -3,4 +3,6 @@ sftp-config.json
 __pycache__/
 meta/downimages/
 runs/
+local_fixmatch.py
+.nsmlignore
 

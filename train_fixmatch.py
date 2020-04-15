@@ -131,7 +131,7 @@ parser.add_argument('--start_epoch', type=int, default=1, metavar='N', help='num
 parser.add_argument('--epochs', type=int, default=200, metavar='N', help='number of epochs to train (default: 10)')
 
 parser.add_argument('--gpu_ids',default='0,1', type=str,help='gpu_ids: e.g. 0  0,1,2  0,2')
-parser.add_argument('--batchsize', default=200, type=int, help='batchsize')
+parser.add_argument('--batchsize', default=128, type=int, help='batchsize')
 
 parser.add_argument('--momentum', type=float, default=0.9, metavar='LR', help=' ')
 parser.add_argument('--seed', type=int, default=123, help='random seed')
@@ -141,7 +141,7 @@ parser.add_argument('--log_interval', type=int, default=10, metavar='N', help='l
 parser.add_argument('--imResize', default=256, type=int, help='')
 parser.add_argument('--imsize', default=224, type=int, help='')
 
-parser.add_argument('--name',default='ResNet50_kaist_naver_prod200k_train_0.1', type=str, help='output model name')
+parser.add_argument('--name',default='ResNet50_kaist_naver_prod200k_train_nsml', type=str, help='output model name')
 parser.add_argument('--resume', default='', type=str, help='path to latest checkpoint (default: none)')
 
 parser.add_argument('--trainfile', default='kaist_naver_prod200k_class265_train01.txt', type=str, help='file name of train')
@@ -259,8 +259,8 @@ def main():
     ##########################
     # Set model
     ##########################
-    class_numbers = train_loader.dataset.classnumber
-    model = Dense121(class_numbers)
+    class_numbers = 265
+    model = Res18_basic(class_numbers)
 
     model = torch.nn.DataParallel(model)    
     parameters = filter(lambda p: p.requires_grad, model.parameters())
