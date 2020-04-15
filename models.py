@@ -222,5 +222,3 @@ class Dense121(nn.Module):
         pred = self.model.classifier(fea)        
         return embed_fea, pred              
         
-
-            

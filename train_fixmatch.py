@@ -11,7 +11,6 @@ import numpy as np
 import shutil
 import random
 import time
-from tqdm import tqdm
 
 import torch
 import torch.nn as nn
@@ -23,13 +22,14 @@ import torch.nn.functional as F
 
 import torchvision
 from torchvision import datasets, models, transforms
-from tensorboardX import SummaryWriter
 
 import torch.nn.functional as F
 
-from ImageDataLoader import SimpleImageLoader, TripletImageLoader, FixMatchImageLoader
+from ImageDataLoader import SimpleImageLoader, FixMatchImageLoader
 from models import Res18, Res50, Dense121, Res18_basic
 from randaugment import RandAugmentMC
+
+from nsml import DATASET_PATH, IS_ON_NSML
 
 def top_n_accuracy_score(y_true, y_prob, n=5, normalize=True):
     num_obs, num_labels = y_prob.shape
@@ -159,6 +159,31 @@ parser.add_argument('--T', default=0.5, type=float)
 parser.add_argument('--val-iteration', type=int, default=100, help='Number of labeled data')
 parser.add_argument('--threshold', type=float, default=0.95, help='Threshold setting for Fixmatch')
 
+def split_ids(path, ratio):
+    with open(path) as f:
+        ids_l = []
+        ids_u = []
+        for i, line in enumerate(f.readlines()):
+            if i == 0 or line == '' or line == '\n':
+                continue
+            line = line.replace('\n', '').split('\t')
+            if int(line[1]) >= 0:
+                ids_l.append(int(line[0]))
+            else:
+                ids_u.append(int(line[0]))
+
+    ids_l = np.array(ids_l)
+    ids_u = np.array(ids_u)
+
+    perm = np.random.permutation(np.arange(len(ids_l)))
+    cut = int(ratio*len(ids_l))
+    train_ids = ids_l[perm][cut:]
+    val_ids = ids_l[perm][:cut]
+
+    return train_ids, val_ids, ids_u
+
+
+
 
 def main():
     global opts
@@ -185,9 +210,12 @@ def main():
 
     ##########################
     # Set dataloader
-    ##########################    
+    ########################## 
+    train_ids, val_ids, unl_ids = split_ids(os.path.join(DATASET_PATH, 'train/train_label'), 0.2)
+    print('found {} train, {} validation and {} unlabeled images'.format(len(train_ids), len(val_ids), len(unl_ids)))
+    # found 16078 train, 4019 validation and 39963 unlabeled images
     train_loader = torch.utils.data.DataLoader(
-        SimpleImageLoader(opts, 'train',
+        SimpleImageLoader(DATASET_PATH, 'train', train_ids,
                           transform=transforms.Compose([
                               transforms.Resize(opts.imResize),
                               transforms.RandomResizedCrop(opts.imsize),
@@ -199,7 +227,7 @@ def main():
     print('train_loader done')   
 
     unlabel_loader = torch.utils.data.DataLoader(
-        FixMatchImageLoader(opts, 'unlabel',
+        FixMatchImageLoader(DATASET_PATH, 'unlabel', unl_ids,
                           transform=transforms.Compose([
                               transforms.Resize(opts.imResize),
                               transforms.RandomResizedCrop(opts.imsize),
@@ -219,7 +247,7 @@ def main():
     print('unlabel_loader done')    
     
     validation_loader = torch.utils.data.DataLoader(
-        SimpleImageLoader(opts, 'validation', 
+        SimpleImageLoader(DATASET_PATH, 'val', val_ids,
                            transform=transforms.Compose([
                                transforms.Resize(opts.imResize),
                                transforms.CenterCrop(opts.imsize),
@@ -233,6 +261,7 @@ def main():
     ##########################
     class_numbers = train_loader.dataset.classnumber
     model = Dense121(class_numbers)
+
     model = torch.nn.DataParallel(model)    
     parameters = filter(lambda p: p.requires_grad, model.parameters())
     n_parameters = sum([p.data.nelement() for p in model.parameters()])
@@ -257,29 +286,23 @@ def main():
     
     best_acc = 0.0
 
-    writer = SummaryWriter()
     
     for epoch in range(opts.start_epoch, opts.epochs + 1):    
         scheduler.step()
         
         print('start training')
-        loss, acc_top1, acc_top5 = train(opts, train_loader, unlabel_loader, model, train_criterion, optimizer, epoch, writer, use_gpu)
+        loss, acc_top1, acc_top5 = train(opts, train_loader, unlabel_loader, model, train_criterion, optimizer, epoch, use_gpu)
         is_best = acc_top1 > best_acc    
         best_acc = max(acc_top1, best_acc)    
         save_checkpoint({'epoch': epoch + 1, 'state_dict': model.state_dict(), 'best_prec1': best_acc,}, is_best)   
-        writer.add_scalar('train_epoch/loss', loss, epoch)
-        writer.add_scalar('train_epoch/acc_train_top1', acc_top1, epoch)       
-        writer.add_scalar('train_epoch/acc_train_top5', acc_top5, epoch)  
         
         print('start validation')
-        acc_top1_test, acc_top5_test = validation(opts, validation_loader, model, epoch, writer, use_gpu)
-        writer.add_scalar('test_epoch/acc_val_top1', acc_top1_test, epoch)  
-        writer.add_scalar('test_epoch/acc_val_top5', acc_top5_test, epoch)  
+        acc_top1_test, acc_top5_test = validation(opts, validation_loader, model, epoch, use_gpu)
             
     checkpoint = torch.load('runs/%s/' % (opts.name) + 'model_best.pth.tar')
     model.load_state_dict(checkpoint['state_dict'])
                 
-def train(opts, train_loader, unlabel_loader, model, criterion, optimizer, epoch, writer, use_gpu):
+def train(opts, train_loader, unlabel_loader, model, criterion, optimizer, epoch, use_gpu):
     
     losses = AverageMeter()
     losses_x = AverageMeter()
@@ -298,7 +321,7 @@ def train(opts, train_loader, unlabel_loader, model, criterion, optimizer, epoch
     labeled_train_iter = iter(train_loader)
     unlabeled_train_iter = iter(unlabel_loader)
     
-    for batch_idx in range(opts.val_iteration):
+    for batch_idx in range(len(train_loader)):
         try:
             data = labeled_train_iter.next()
             inputs_x, targets_x = data
@@ -308,11 +331,11 @@ def train(opts, train_loader, unlabel_loader, model, criterion, optimizer, epoch
             inputs_x, targets_x = data
         try:
             data = unlabeled_train_iter.next()
-            inputs_u1, inputs_u2, _ = data
+            inputs_u1, inputs_u2 = data
         except:
             unlabeled_train_iter = iter(unlabel_loader)       
             data = unlabeled_train_iter.next()
-            inputs_u1, inputs_u2, _ = data         
+            inputs_u1, inputs_u2 = data         
     
         batch_size = inputs_x.size(0)
         # Transform label to one-hot
@@ -366,13 +389,7 @@ def train(opts, train_loader, unlabel_loader, model, criterion, optimizer, epoch
         if batch_idx % opts.log_interval == 0:
             print('Train Epoch:{} [{}/{}] Loss:{:.4f}({:.4f}) Top-1:{:.2f}%({:.2f}%) Top-5:{:.2f}%({:.2f}%) '.format( 
                 epoch, batch_idx *inputs_x.size(0), len(train_loader.dataset), losses.val, losses.avg, acc_top1.val, acc_top1.avg, acc_top5.val, acc_top5.avg))            
-                
-        writer.add_scalar('train_step/loss', loss.item(), steps)
-        writer.add_scalar('train_step/loss_x',Lx.item(), steps)
-        writer.add_scalar('train_step/loss_unlabel', Lu.item(), steps)
-        writer.add_scalar('train_step/acc_top1', acc_top1b, steps)     
-        writer.add_scalar('train_step/acc_top5', acc_top5b, steps)    
-        
+                        
         steps += 1
         nCnt += 1 
         
@@ -383,14 +400,14 @@ def train(opts, train_loader, unlabel_loader, model, criterion, optimizer, epoch
     return  avg_loss, avg_top1, avg_top5    
 
 
-def validation(opts, validation_loader, model, epoch, writer, use_gpu):
+def validation(opts, validation_loader, model, epoch, use_gpu):
     model.eval()
     avg_top1= 0.0
     avg_top5 = 0.0
     nCnt =0 
     steps = (epoch - 1) * len(validation_loader)
     with torch.no_grad():
-        for batch_idx, data in enumerate(tqdm(validation_loader)):
+        for batch_idx, data in enumerate(validation_loader):
             inputs, labels = data
             if use_gpu :
                 inputs = inputs.cuda()
@@ -403,8 +420,6 @@ def validation(opts, validation_loader, model, epoch, writer, use_gpu):
             acc_top5 = top_n_accuracy_score(labels.numpy(), preds.data.cpu().numpy(), n=5)*100
             avg_top1 += acc_top1
             avg_top5 += acc_top5
-            writer.add_scalar('test_step/acc_val_top1', acc_top1, steps)    
-            writer.add_scalar('test_step/acc_val_top5', acc_top5, steps)   
         avg_top1 = float(avg_top1/nCnt)   
         avg_top5= float(avg_top5/nCnt)   
         print('Test Epoch:{} Top1_acc_val:{:.2f}% Top5_acc_val:{:.2f}% '.format(epoch, avg_top1, avg_top5))
