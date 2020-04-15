@@ -199,7 +199,7 @@ class Dense121(nn.Module):
         model_ft.features.avgpool = nn.AdaptiveAvgPool2d((1,1))
         model_ft.features.fc_embed = nn.Linear(1024, fea_dim)
         model_ft.features.fc_embed.apply(weights_init_classifier)  
-        model_ft.classifier = ClassBlock(2048, class_num)
+        model_ft.classifier = ClassBlock(1024, class_num)
         model_ft.classifier.apply(weights_init_classifier)  
         self.model = model_ft
         

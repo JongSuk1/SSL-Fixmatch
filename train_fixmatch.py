@@ -125,7 +125,7 @@ def get_cosine_schedule_with_warmup(optimizer,
 # Options
 # --------
 parser = argparse.ArgumentParser(description='Sample Product200K Training')
-parser.add_argument('--datadir',default='/home1/irteam/users/shine0624/kaist-naver/kaist_naver_product200k/', type=str, help='training dir path')
+parser.add_argument('--datadir',default='/workspace/cs492h-ssl/meta/', type=str, help='training dir path')
 
 parser.add_argument('--start_epoch', type=int, default=1, metavar='N', help='number of start epoch (default: 1)')
 parser.add_argument('--epochs', type=int, default=200, metavar='N', help='number of epochs to train (default: 10)')
@@ -232,7 +232,7 @@ def main():
     # Set model
     ##########################
     class_numbers = train_loader.dataset.classnumber
-    model = Res18_basic(class_numbers)
+    model = Dense121(class_numbers)
     model = torch.nn.DataParallel(model)    
     parameters = filter(lambda p: p.requires_grad, model.parameters())
     n_parameters = sum([p.data.nelement() for p in model.parameters()])
