@@ -1,4 +1,3 @@
-# encoding: utf-8
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
@@ -29,7 +28,12 @@ from ImageDataLoader import SimpleImageLoader, FixMatchImageLoader
 from models import Res18, Res50, Dense121, Res18_basic
 from randaugment import RandAugmentMC
 
+import nsml
 from nsml import DATASET_PATH, IS_ON_NSML
+
+NUM_CLASSES = 265
+if not IS_ON_NSML:
+    DATASET_PATH = 'fashion_demo'
 
 def top_n_accuracy_score(y_true, y_prob, n=5, normalize=True):
     num_obs, num_labels = y_prob.shape
@@ -63,17 +67,7 @@ def adjust_learning_rate(opts, optimizer, epoch):
     """Sets the learning rate to the initial LR decayed by 10 every 30 epochs"""
     lr = opts.lr * (0.1 ** (epoch // 30))
     for param_group in optimizer.param_groups:
-        param_group['lr'] = lr        
-
-def save_checkpoint(state, is_best, filename='checkpoint.pth.tar'):
-    """Saves checkpoint to disk"""
-    directory = "runs/%s/" % (opts.name)
-    if not os.path.exists(directory):
-        os.makedirs(directory)
-    filename = directory + filename
-    torch.save(state, filename)
-    if is_best:
-        shutil.copyfile(filename, 'runs/%s/' % (opts.name) + 'model_best.pth.tar')
+        param_group['lr'] = lr
         
 def linear_rampup(current, rampup_length):
     if rampup_length == 0:
@@ -107,57 +101,6 @@ def interleave(xy, batch):
         xy[0][i], xy[i][i] = xy[i][i], xy[0][i]
     return [torch.cat(v, dim=0) for v in xy]
 
-def get_cosine_schedule_with_warmup(optimizer,
-                                    num_warmup_steps,
-                                    num_training_steps,
-                                    num_cycles=7./16.,
-                                    last_epoch=-1):
-    def _lr_lambda(current_step):
-        if current_step < num_warmup_steps:
-            return float(current_step) / float(max(1, num_warmup_steps))
-        no_progress = float(current_step - num_warmup_steps) / \
-            float(max(1, num_training_steps - num_warmup_steps))
-        return max(0., math.cos(math.pi * num_cycles * no_progress))
-
-    return LambdaLR(optimizer, _lr_lambda, last_epoch)
-
-######################################################################
-# Options
-# --------
-parser = argparse.ArgumentParser(description='Sample Product200K Training')
-parser.add_argument('--datadir',default='/workspace/cs492h-ssl/meta/', type=str, help='training dir path')
-
-parser.add_argument('--start_epoch', type=int, default=1, metavar='N', help='number of start epoch (default: 1)')
-parser.add_argument('--epochs', type=int, default=200, metavar='N', help='number of epochs to train (default: 10)')
-
-parser.add_argument('--gpu_ids',default='0,1', type=str,help='gpu_ids: e.g. 0  0,1,2  0,2')
-parser.add_argument('--batchsize', default=128, type=int, help='batchsize')
-
-parser.add_argument('--momentum', type=float, default=0.9, metavar='LR', help=' ')
-parser.add_argument('--seed', type=int, default=123, help='random seed')
-
-parser.add_argument('--lr', type=float, default=1e-3, metavar='LR', help='learning rate (default: 5e-5)')
-parser.add_argument('--log_interval', type=int, default=10, metavar='N', help='logging training status')
-parser.add_argument('--imResize', default=256, type=int, help='')
-parser.add_argument('--imsize', default=224, type=int, help='')
-
-parser.add_argument('--name',default='ResNet50_kaist_naver_prod200k_train_nsml', type=str, help='output model name')
-parser.add_argument('--resume', default='', type=str, help='path to latest checkpoint (default: none)')
-
-parser.add_argument('--trainfile', default='kaist_naver_prod200k_class265_train01.txt', type=str, help='file name of train')
-parser.add_argument('--validfile', default='kaist_naver_prod200k_class265_val.txt', type=str, help='file name of validation')
-parser.add_argument('--testfile', default='kaist_naver_prod200k_class265_test.txt', type=str, help='file name of test')
-parser.add_argument('--unlabelfile', default='kaist_naver_prod200k_class265_unlabel.txt', type=str, help='file name of test')
-
-parser.add_argument('--lossXent', type=float, default=1, help='lossWeight for Xent')
-parser.add_argument('--lossTri', type=float, default=1, help='lossWeight for metric learning')
-
-#prams for mix-match
-parser.add_argument('--alpha', default=0.75, type=float)
-parser.add_argument('--lambda-u', default=1 , type=float)
-parser.add_argument('--T', default=0.5, type=float)
-parser.add_argument('--val-iteration', type=int, default=100, help='Number of labeled data')
-parser.add_argument('--threshold', type=float, default=0.95, help='Threshold setting for Fixmatch')
 
 def split_ids(path, ratio):
     with open(path) as f:
@@ -183,21 +126,112 @@ def split_ids(path, ratio):
     return train_ids, val_ids, ids_u
 
 
+### NSML functions
+def _infer(model, root_path, test_loader=None):
+    if test_loader is None:
+        test_loader = torch.utils.data.DataLoader(
+            SimpleImageLoader(root_path, 'test',
+                               transform=transforms.Compose([
+                                   transforms.Resize(opts.imResize),
+                                   transforms.CenterCrop(opts.imsize),
+                                   transforms.ToTensor(),
+                                   transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+                               ])), batch_size=opts.batchsize, shuffle=False, num_workers=4, pin_memory=True)
+        print('loaded {} test images'.format(len(test_loader.dataset)))
 
+    outputs = []
+    s_t = time.time()
+    for idx, image in enumerate(test_loader):
+        if torch.cuda.is_available():
+            image = image.cuda()
+        _, probs = model(image)
+        output = torch.argmax(probs, dim=1)
+        output = output.detach().cpu().numpy()
+        outputs.append(output)
+
+    outputs = np.concatenate(outputs)
+    return outputs
+
+def bind_nsml(model):
+    def save(dir_name, *args, **kwargs):
+        os.makedirs(dir_name, exist_ok=True)
+        state = model.state_dict()
+        torch.save(state, os.path.join(dir_name, 'model.pt'))
+        print('saved')
+
+    def load(dir_name, *args, **kwargs):
+        state = torch.load(os.path.join(dir_name, 'model.pt'))
+        model.load_state_dict(state)
+        print('loaded')
+
+    def infer(root_path):
+        return _infer(model, root_path)
+
+    nsml.bind(save=save, load=load, infer=infer)
+
+
+def get_cosine_schedule_with_warmup(optimizer,
+                                    num_warmup_steps,
+                                    num_training_steps,
+                                    num_cycles=7./16.,
+                                    last_epoch=-1):
+    def _lr_lambda(current_step):
+        if current_step < num_warmup_steps:
+            return float(current_step) / float(max(1, num_warmup_steps))
+        no_progress = float(current_step - num_warmup_steps) / \
+            float(max(1, num_training_steps - num_warmup_steps))
+        return max(0., math.cos(math.pi * num_cycles * no_progress))
+
+    return LambdaLR(optimizer, _lr_lambda, last_epoch)
+
+######################################################################
+# Options
+######################################################################
+parser = argparse.ArgumentParser(description='Sample Product200K Training')
+parser.add_argument('--start_epoch', type=int, default=1, metavar='N', help='number of start epoch (default: 1)')
+parser.add_argument('--epochs', type=int, default=200, metavar='N', help='number of epochs to train (default: 200)')
+
+# basic settings
+parser.add_argument('--name',default='Res18baseMM', type=str, help='output model name')
+parser.add_argument('--gpu_ids',default='0', type=str,help='gpu_ids: e.g. 0  0,1,2  0,2')
+parser.add_argument('--batchsize', default=128, type=int, help='batchsize')
+parser.add_argument('--seed', type=int, default=123, help='random seed')
+
+# basic hyper-parameters
+parser.add_argument('--momentum', type=float, default=0.9, metavar='LR', help=' ')
+parser.add_argument('--lr', type=float, default=1e-3, metavar='LR', help='learning rate (default: 5e-5)')
+parser.add_argument('--imResize', default=256, type=int, help='')
+parser.add_argument('--imsize', default=224, type=int, help='')
+parser.add_argument('--lossXent', type=float, default=1, help='lossWeight for Xent')
+
+# arguments for logging and backup
+parser.add_argument('--log_interval', type=int, default=10, metavar='N', help='logging training status')
+parser.add_argument('--save_epoch', type=int, default=50, help='saving epoch interval')
+
+# hyper-parameters for mix-match
+parser.add_argument('--alpha', default=0.75, type=float)
+parser.add_argument('--lambda-u', default=1, type=float)
+parser.add_argument('--T', default=0.5, type=float)
+parser.add_argument('--val-iteration', type=int, default=100, help='Number of labeled data')
+parser.add_argument('--threshold', type=float, default=0.95, help='Threshold setting for Fixmatch')
+
+### DO NOT MODIFY THIS BLOCK ###
+# arguments for nsml 
+parser.add_argument('--pause', type=int, default=0)
+parser.add_argument('--mode', type=str, default='train')
+################################
 
 def main():
     global opts
     opts = parser.parse_args()
     opts.cuda = 0
 
-    ##########################
     # Set GPU
-    ##########################
     seed = opts.seed
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
-    
+
     os.environ['CUDA_VISIBLE_DEVICES'] = opts.gpu_ids
     use_gpu = torch.cuda.is_available()
     if use_gpu:
@@ -208,99 +242,106 @@ def main():
     else:
         print("Currently using CPU (GPU is highly recommended)")
 
-    ##########################
-    # Set dataloader
-    ########################## 
-    train_ids, val_ids, unl_ids = split_ids(os.path.join(DATASET_PATH, 'train/train_label'), 0.2)
-    print('found {} train, {} validation and {} unlabeled images'.format(len(train_ids), len(val_ids), len(unl_ids)))
-    # found 16078 train, 4019 validation and 39963 unlabeled images
-    train_loader = torch.utils.data.DataLoader(
-        SimpleImageLoader(DATASET_PATH, 'train', train_ids,
-                          transform=transforms.Compose([
-                              transforms.Resize(opts.imResize),
-                              transforms.RandomResizedCrop(opts.imsize),
-                              transforms.RandomHorizontalFlip(),
-                              transforms.RandomVerticalFlip(),
-                              transforms.ToTensor(),
-                              transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),])), 
-        batch_size=opts.batchsize, shuffle=True, num_workers=4, pin_memory=True, drop_last=True)
-    print('train_loader done')   
 
-    unlabel_loader = torch.utils.data.DataLoader(
-        FixMatchImageLoader(DATASET_PATH, 'unlabel', unl_ids,
-                          transform=transforms.Compose([
-                              transforms.Resize(opts.imResize),
-                              transforms.RandomResizedCrop(opts.imsize),
-                              transforms.RandomHorizontalFlip(),
-                              transforms.RandomVerticalFlip(),
-                              transforms.ToTensor(),
-                              transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),]),
-                          strong_transform=transforms.Compose([
-                              transforms.Resize(opts.imResize),
-                              transforms.RandomResizedCrop(opts.imsize),
-                              transforms.RandomHorizontalFlip(),
-                              transforms.RandomVerticalFlip(),
-                              RandAugmentMC(n=2, m=10),
-                              transforms.ToTensor(),
-                              transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),])), 
-        batch_size=opts.batchsize, shuffle=True, num_workers=4, pin_memory=True, drop_last=True)
-    print('unlabel_loader done')    
-    
-    validation_loader = torch.utils.data.DataLoader(
-        SimpleImageLoader(DATASET_PATH, 'val', val_ids,
-                           transform=transforms.Compose([
-                               transforms.Resize(opts.imResize),
-                               transforms.CenterCrop(opts.imsize),
-                               transforms.ToTensor(),
-                               transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
-                           ])), batch_size=opts.batchsize, shuffle=False, num_workers=4, pin_memory=True, drop_last=False)
-    print('validation_loader done')          
-    
-    ##########################
     # Set model
-    ##########################
-    class_numbers = 265
-    model = Res18_basic(class_numbers)
+    model = Res18_basic(NUM_CLASSES)
+    model.eval()
 
-    model = torch.nn.DataParallel(model)    
     parameters = filter(lambda p: p.requires_grad, model.parameters())
     n_parameters = sum([p.data.nelement() for p in model.parameters()])
-    print('  + Number of params: {}'.format(n_parameters))            
-    
+    print('  + Number of params: {}'.format(n_parameters))
+
     if use_gpu:
         model.cuda()
-        
-    ##########################
-    # Set optimizer
-    ##########################    
-    
-    # Set optimizer
-    #optimizer = optim.Adam(model.parameters(), lr=opts.lr)
-    optimizer = optim.SGD(model.parameters(), lr=opts.lr,  momentum=opts.momentum )
-    
-    # INSTANTIATE LOSS CLASS
-    train_criterion = SemiLoss()
-             
-    # INSTANTIATE STEP LEARNING SCHEDULER CLASS
-    scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer,  milestones=[50, 150], gamma=0.1)   
-    
-    best_acc = 0.0
 
-    
-    for epoch in range(opts.start_epoch, opts.epochs + 1):    
-        scheduler.step()
+    ### DO NOT MODIFY THIS BLOCK ###
+    if IS_ON_NSML:
+        bind_nsml(model)
+        if opts.pause:
+            nsml.paused(scope=locals())
+    ################################
+
+    if opts.mode == 'train':
+        model.train()
+        # Set dataloader
+        train_ids, val_ids, unl_ids = split_ids(os.path.join(DATASET_PATH, 'train/train_label'), 0.2)
+        print('found {} train, {} validation and {} unlabeled images'.format(len(train_ids), len(val_ids), len(unl_ids)))
+        train_loader = torch.utils.data.DataLoader(
+            SimpleImageLoader(DATASET_PATH, 'train', train_ids,
+                              transform=transforms.Compose([
+                                  transforms.Resize(opts.imResize),
+                                  transforms.RandomResizedCrop(opts.imsize),
+                                  transforms.RandomHorizontalFlip(),
+                                  transforms.RandomVerticalFlip(),
+                                  transforms.ToTensor(),
+                                  transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),])),
+                                batch_size=opts.batchsize, shuffle=True, num_workers=4, pin_memory=True, drop_last=True)
+        print('train_loader done')
+
+        unlabel_loader = torch.utils.data.DataLoader(
+            FixMatchImageLoader(DATASET_PATH, 'unlabel', unl_ids,
+                              transform=transforms.Compose([
+                                  transforms.Resize(opts.imResize),
+                                  transforms.RandomResizedCrop(opts.imsize),
+                                  transforms.RandomHorizontalFlip(),
+                                  transforms.RandomVerticalFlip(),
+                                  transforms.ToTensor(),
+                                  transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),]),
+                              strong_transform=transforms.Compose([
+                                  transforms.Resize(opts.imResize),
+                                  transforms.RandomResizedCrop(opts.imsize),
+                                  transforms.RandomHorizontalFlip(),
+                                  transforms.RandomVerticalFlip(),
+                                  RandAugmentMC(n=2, m=10),
+                                  transforms.ToTensor(),
+                                  transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),])), 
+            batch_size=opts.batchsize, shuffle=True, num_workers=4, pin_memory=True, drop_last=True)
+        print('unlabel_loader done')    
+
+        validation_loader = torch.utils.data.DataLoader(
+            SimpleImageLoader(DATASET_PATH, 'val', val_ids,
+                               transform=transforms.Compose([
+                                   transforms.Resize(opts.imResize),
+                                   transforms.CenterCrop(opts.imsize),
+                                   transforms.ToTensor(),
+                                   transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),])),
+                               batch_size=opts.batchsize, shuffle=False, num_workers=4, pin_memory=True, drop_last=False)
+        print('validation_loader done')
+
+        # Set optimizer
+        #optimizer = optim.Adam(model.parameters(), lr=opts.lr)
+        optimizer = optim.SGD(model.parameters(), lr=opts.lr,  momentum=opts.momentum )
+
+        # INSTANTIATE LOSS CLASS
+        train_criterion = SemiLoss()
+
+        # INSTANTIATE STEP LEARNING SCHEDULER CLASS
+        scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer,  milestones=[50, 150], gamma=0.1)
+
+        # Train and Validation 
+        best_acc = 0.0
         
-        print('start training')
-        loss, acc_top1, acc_top5 = train(opts, train_loader, unlabel_loader, model, train_criterion, optimizer, epoch, use_gpu)
-        is_best = acc_top1 > best_acc    
-        best_acc = max(acc_top1, best_acc)    
-        save_checkpoint({'epoch': epoch + 1, 'state_dict': model.state_dict(), 'best_prec1': best_acc,}, is_best)   
-        
-        print('start validation')
-        acc_top1_test, acc_top5_test = validation(opts, validation_loader, model, epoch, use_gpu)
-            
-    checkpoint = torch.load('runs/%s/' % (opts.name) + 'model_best.pth.tar')
-    model.load_state_dict(checkpoint['state_dict'])
+        for epoch in range(opts.start_epoch, opts.epochs + 1):
+            print('start training')
+            loss, _, _ = train(opts, train_loader, unlabel_loader, model, train_criterion, optimizer, epoch, use_gpu)
+            scheduler.step()
+
+            print('start validation')
+            acc_top1, acc_top5 = validation(opts, validation_loader, model, epoch, use_gpu)
+            is_best = acc_top1 > best_acc
+            best_acc = max(acc_top1, best_acc)
+            if is_best:
+                print('saving best checkpoint...')
+                if IS_ON_NSML:
+                    nsml.save(opts.name + '_best')
+                else:
+                    torch.save(model.state_dict(), os.path.join('runs', opts.name + '_best'))
+            if (epoch + 1) % opts.save_epoch == 0:
+                if IS_ON_NSML:
+                    nsml.save(opts.name + '_e{}'.format(epoch))
+                else:
+                    torch.save(model.state_dict(), os.path.join('runs', opts.name + '_e{}'.format(epoch)))
+
                 
 def train(opts, train_loader, unlabel_loader, model, criterion, optimizer, epoch, use_gpu):
     
@@ -317,7 +358,6 @@ def train(opts, train_loader, unlabel_loader, model, criterion, optimizer, epoch
     model.train()
     
     nCnt =0 
-    steps = (epoch - 1) * opts.val_iteration 
     labeled_train_iter = iter(train_loader)
     unlabeled_train_iter = iter(unlabel_loader)
     
@@ -390,7 +430,6 @@ def train(opts, train_loader, unlabel_loader, model, criterion, optimizer, epoch
             print('Train Epoch:{} [{}/{}] Loss:{:.4f}({:.4f}) Top-1:{:.2f}%({:.2f}%) Top-5:{:.2f}%({:.2f}%) '.format( 
                 epoch, batch_idx *inputs_x.size(0), len(train_loader.dataset), losses.val, losses.avg, acc_top1.val, acc_top1.avg, acc_top5.val, acc_top5.avg))            
                         
-        steps += 1
         nCnt += 1 
         
     avg_loss =  float(avg_loss/nCnt)
@@ -400,19 +439,18 @@ def train(opts, train_loader, unlabel_loader, model, criterion, optimizer, epoch
     return  avg_loss, avg_top1, avg_top5    
 
 
+
 def validation(opts, validation_loader, model, epoch, use_gpu):
     model.eval()
     avg_top1= 0.0
     avg_top5 = 0.0
     nCnt =0 
-    steps = (epoch - 1) * len(validation_loader)
     with torch.no_grad():
         for batch_idx, data in enumerate(validation_loader):
             inputs, labels = data
             if use_gpu :
                 inputs = inputs.cuda()
             inputs = Variable(inputs)
-            steps += 1        
             nCnt +=1
             embed_fea, preds = model(inputs)
 
@@ -420,12 +458,15 @@ def validation(opts, validation_loader, model, epoch, use_gpu):
             acc_top5 = top_n_accuracy_score(labels.numpy(), preds.data.cpu().numpy(), n=5)*100
             avg_top1 += acc_top1
             avg_top5 += acc_top5
+
         avg_top1 = float(avg_top1/nCnt)   
         avg_top5= float(avg_top5/nCnt)   
         print('Test Epoch:{} Top1_acc_val:{:.2f}% Top5_acc_val:{:.2f}% '.format(epoch, avg_top1, avg_top5))
     return avg_top1, avg_top5
 
-            
+
+
 if __name__ == '__main__':
     main()
-            
+
+
