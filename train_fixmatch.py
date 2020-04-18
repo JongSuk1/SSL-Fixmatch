@@ -33,7 +33,7 @@ from nsml import DATASET_PATH, IS_ON_NSML
 
 NUM_CLASSES = 265
 if not IS_ON_NSML:
-    DATASET_PATH = 'fashion_demo'
+    DATASET_PATH = '/workspace/cs492h-ssl/meta/'
 
 def top_n_accuracy_score(y_true, y_prob, n=5, normalize=True):
     num_obs, num_labels = y_prob.shape
@@ -192,9 +192,9 @@ parser.add_argument('--start_epoch', type=int, default=1, metavar='N', help='num
 parser.add_argument('--epochs', type=int, default=200, metavar='N', help='number of epochs to train (default: 200)')
 
 # basic settings
-parser.add_argument('--name',default='Fixmatch_Res50', type=str, help='output model name')
+parser.add_argument('--name',default='HA_trial3', type=str, help='output model name')
 parser.add_argument('--gpu_ids',default='0', type=str,help='gpu_ids: e.g. 0  0,1,2  0,2')
-parser.add_argument('--batchsize', default=128, type=int, help='batchsize')
+parser.add_argument('--batchsize', default=64, type=int, help='batchsize')
 parser.add_argument('--seed', type=int, default=123, help='random seed')
 
 # basic hyper-parameters
@@ -245,7 +245,6 @@ def main():
 
     # Set model
     model = Res50(NUM_CLASSES)
-    model.eval()
 
     parameters = filter(lambda p: p.requires_grad, model.parameters())
     n_parameters = sum([p.data.nelement() for p in model.parameters()])
@@ -295,7 +294,7 @@ def main():
                                   RandAugmentMC(n=2, m=10),
                                   transforms.ToTensor(),
                                   transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),])), 
-            batch_size=opts.batchsize, shuffle=True, num_workers=4, pin_memory=True, drop_last=True)
+            batch_size=opts.batchsize*3, shuffle=True, num_workers=4, pin_memory=True, drop_last=True)
         print('unlabel_loader done')    
 
         validation_loader = torch.utils.data.DataLoader(

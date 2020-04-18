@@ -1,7 +1,7 @@
 sftp-config.json
 .ipynb_checkpoints/
 __pycache__/
-meta/downimages/
+meta/
 runs/
 local_*
 .nsmlignore
