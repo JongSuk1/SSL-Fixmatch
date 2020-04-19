@@ -73,17 +73,15 @@ def adjust_learning_rate(opts, optimizer, epoch):
     """
     if epoch <= 5:
         lr = opts.lr + (0.4-0.03) * (epoch - 1) / 4
-
-    """
-    Decay same as ImageNet setting.
-    """
-    if epoch == 60:
+    elif epoch < 60:
+        lr = 0.4
+    elif epoch >= 60 and epoch < 120:
         lr = 0.4 * 0.1
-    if epoch == 120:
+    elif epoch >= 120 and epoch < 160:
         lr = 0.4 * (0.1 ** 2)
-    if epoch == 160:
+    elif epoch >= 160 and epoch < 200:
         lr = 0.4 * (0.1 ** 3)
-    if epoch == 200:
+    else:
         lr = 0.4 * (0.1 ** 4)
 
     for param_group in optimizer.param_groups:
