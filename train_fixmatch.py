@@ -346,7 +346,8 @@ def main():
         
         for epoch in range(opts.start_epoch, opts.epochs + 1):
             print('start training')
-            adjust_learning_rate(opts, optimizer, epoch)
+            #adjust_learning_rate(opts, optimizer, epoch)
+            scheduler.step()
             loss, train_top1, train_top5 = train(opts, train_loader, unlabel_loader, model, train_criterion, optimizer, epoch, use_gpu)
 
             print('start validation')
