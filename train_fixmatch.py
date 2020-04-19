@@ -68,10 +68,24 @@ class AverageMeter(object):
         
 def adjust_learning_rate(opts, optimizer, epoch):
     """Sets the learning rate to the initial LR decayed by 10 every 30 epochs"""
+    """
+    Linear Warmup.
+    """
     if epoch <= 5:
         lr = lr  + (0.4-0.03) / 5
-    if epoch in [60, 120, 160, 200]:
-        lr = opts.lr * 0.1
+
+    """
+    Decay same as ImageNet setting.
+    """
+    if epoch == 60:
+        lr = 0.4 * 0.1
+    if epoch == 120:
+        lr = 0.4 * (0.1 ** 2)
+    if epoch == 160:
+        lr = 0.4 * (0.1 ** 3)
+    if epoch == 200:
+        lr = 0.4 * (0.1 ** 4)
+
     for param_group in optimizer.param_groups:
         param_group['lr'] = lr
         
@@ -195,7 +209,7 @@ def get_cosine_schedule_with_warmup(optimizer,
 ######################################################################
 parser = argparse.ArgumentParser(description='Sample Product200K Training')
 parser.add_argument('--start_epoch', type=int, default=1, metavar='N', help='number of start epoch (default: 1)')
-parser.add_argument('--epochs', type=int, default=200, metavar='N', help='number of epochs to train (default: 200)')
+parser.add_argument('--epochs', type=int, default=300, metavar='N', help='number of epochs to train (default: 200)')
 
 # basic settings
 parser.add_argument('--name',default='HA_trial3', type=str, help='output model name')
@@ -214,14 +228,14 @@ parser.add_argument('--lossXent', type=float, default=1, help='lossWeight for Xe
 parser.add_argument('--log_interval', type=int, default=10, metavar='N', help='logging training status')
 parser.add_argument('--save_epoch', type=int, default=50, help='saving epoch interval')
 
-# hyper-parameters for mix-match
-parser.add_argument('--alpha', default=0.75, type=float)
+# hyper-parameters for fixmatch
 parser.add_argument('--lambda-u', default=1, type=float)
-parser.add_argument('--mu', default=1 , type=float)
+parser.add_argument('--mu', default=1 , type=int, help"Batch ratio between labeled/unlabeled")
+parser.add_argument('--threshold', type=float, default=0.95, help='Threshold setting for Fixmatch')
+
 
 parser.add_argument('--T', default=0.5, type=float)
 parser.add_argument('--val-iteration', type=int, default=100, help='Number of labeled data')
-parser.add_argument('--threshold', type=float, default=0.95, help='Threshold setting for Fixmatch')
 
 ### DO NOT MODIFY THIS BLOCK ###
 # arguments for nsml 
@@ -306,7 +320,7 @@ def main():
                                   RandAugmentMC(n=2, m=10),
                                   transforms.ToTensor(),
                                   transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),])), 
-            batch_size=opts.batchsize*3, shuffle=True, num_workers=4, pin_memory=True, drop_last=True)
+            batch_size=opts.batchsize*opts.mu, shuffle=True, num_workers=4, pin_memory=True, drop_last=True)
         print('unlabel_loader done')    
 
         validation_loader = torch.utils.data.DataLoader(
@@ -334,8 +348,8 @@ def main():
         
         for epoch in range(opts.start_epoch, opts.epochs + 1):
             print('start training')
+            adjust_learning_rate(opts, optimizer, epoch)
             loss, train_top1, train_top5 = train(opts, train_loader, unlabel_loader, model, train_criterion, optimizer, epoch, use_gpu)
-            scheduler.step()
 
             print('start validation')
             acc_top1, acc_top5 = validation(opts, validation_loader, model, epoch, use_gpu)
