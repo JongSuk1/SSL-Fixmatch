@@ -21,7 +21,7 @@ import torch.nn.functional as F
 
 import torchvision
 from torchvision import datasets, models, transforms
-from tensorboardX import SummaryWriter
+#from tensorboardX import SummaryWriter
 
 import torch.nn.functional as F
 
@@ -68,7 +68,10 @@ class AverageMeter(object):
         
 def adjust_learning_rate(opts, optimizer, epoch):
     """Sets the learning rate to the initial LR decayed by 10 every 30 epochs"""
-    lr = opts.lr * (0.1 ** (epoch // 30))
+    if epoch <= 5:
+        lr = lr  + (0.4-0.03) / 5
+    if epoch in [60, 120, 160, 200]:
+        lr = opts.lr * 0.1
     for param_group in optimizer.param_groups:
         param_group['lr'] = lr
         
@@ -197,12 +200,12 @@ parser.add_argument('--epochs', type=int, default=200, metavar='N', help='number
 # basic settings
 parser.add_argument('--name',default='HA_trial3', type=str, help='output model name')
 parser.add_argument('--gpu_ids',default='0', type=str,help='gpu_ids: e.g. 0  0,1,2  0,2')
-parser.add_argument('--batchsize', default=64, type=int, help='batchsize')
+parser.add_argument('--batchsize', default=32, type=int, help='batchsize')
 parser.add_argument('--seed', type=int, default=123, help='random seed')
 
 # basic hyper-parameters
 parser.add_argument('--momentum', type=float, default=0.9, metavar='LR', help=' ')
-parser.add_argument('--lr', type=float, default=1e-3, metavar='LR', help='learning rate (default: 5e-5)')
+parser.add_argument('--lr', type=float, default=0.03, metavar='LR', help='learning rate (default: 5e-5)')
 parser.add_argument('--imResize', default=256, type=int, help='')
 parser.add_argument('--imsize', default=224, type=int, help='')
 parser.add_argument('--lossXent', type=float, default=1, help='lossWeight for Xent')
@@ -231,8 +234,8 @@ def main():
     opts = parser.parse_args()
     opts.cuda = 0
 
-    global writer
-    writer = SummaryWriter("runs/"+opts.name)
+#    global writer
+#    writer = SummaryWriter("runs/"+opts.name)
     # Set GPU
     seed = opts.seed
     random.seed(seed)
@@ -318,7 +321,7 @@ def main():
 
         # Set optimizer
         #optimizer = optim.Adam(model.parameters(), lr=opts.lr)
-        optimizer = optim.SGD(model.parameters(), lr=opts.lr,  momentum=opts.momentum )
+        optimizer = optim.SGD(model.parameters(), lr=opts.lr,  momentum=opts.momentum, nesterov=True, weight_decay=0.0001)
 
         # INSTANTIATE LOSS CLASS
         train_criterion = SemiLoss()
@@ -350,12 +353,12 @@ def main():
                 else:
                     torch.save(model.state_dict(), os.path.join('runs', opts.name + '_e{}.pth.tar'.format(epoch)))
                     
-            if not IS_ON_NSML:
-                writer.add_scalar('train_epoch/loss', loss, epoch)
-                writer.add_scalar('train_epoch/acc_train_top1', train_top1, epoch)       
-                writer.add_scalar('train_epoch/acc_train_top5', train_top5, epoch)  
-                writer.add_scalar('test_epoch/acc_val_top1', acc_top1, epoch)  
-                writer.add_scalar('test_epoch/acc_val_top5', acc_top5, epoch)  
+#            if not IS_ON_NSML:
+#                writer.add_scalar('train_epoch/loss', loss, epoch)
+#                writer.add_scalar('train_epoch/acc_train_top1', train_top1, epoch)       
+#                writer.add_scalar('train_epoch/acc_train_top5', train_top5, epoch)  
+#                writer.add_scalar('test_epoch/acc_val_top1', acc_top1, epoch)  
+#                writer.add_scalar('test_epoch/acc_val_top5', acc_top5, epoch)  
 
                 
 def train(opts, train_loader, unlabel_loader, model, criterion, optimizer, epoch, use_gpu):
@@ -446,12 +449,12 @@ def train(opts, train_loader, unlabel_loader, model, criterion, optimizer, epoch
             print('Train Epoch:{} [{}/{}] Loss:{:.4f}({:.4f}) Top-1:{:.2f}%({:.2f}%) Top-5:{:.2f}%({:.2f}%) '.format( 
                 epoch, batch_idx *inputs_x.size(0), len(train_loader.dataset), losses.val, losses.avg, acc_top1.val, acc_top1.avg, acc_top5.val, acc_top5.avg))            
              
-        if not IS_ON_NSML:
-            writer.add_scalar('train_step/loss', loss.item(), steps)
-            writer.add_scalar('train_step/loss_x',Lx.item(), steps)
-            writer.add_scalar('train_step/loss_unlabel', Lu.item(), steps)
-            writer.add_scalar('train_step/acc_top1', acc_top1b, steps)     
-            writer.add_scalar('train_step/acc_top5', acc_top5b, steps)      
+#        if not IS_ON_NSML:
+#            writer.add_scalar('train_step/loss', loss.item(), steps)
+#            writer.add_scalar('train_step/loss_x',Lx.item(), steps)
+#            writer.add_scalar('train_step/loss_unlabel', Lu.item(), steps)
+#            writer.add_scalar('train_step/acc_top1', acc_top1b, steps)     
+#            writer.add_scalar('train_step/acc_top5', acc_top5b, steps)      
         steps += 1
         nCnt += 1 
         
@@ -485,9 +488,9 @@ def validation(opts, validation_loader, model, epoch, use_gpu):
             avg_top1 += acc_top1
             avg_top5 += acc_top5
 
-            if not IS_ON_NSML:
-                writer.add_scalar('test_step/acc_val_top1', acc_top1, steps)    
-                writer.add_scalar('test_step/acc_val_top5', acc_top5, steps)
+#            if not IS_ON_NSML:
+#                writer.add_scalar('test_step/acc_val_top1', acc_top1, steps)    
+#                writer.add_scalar('test_step/acc_val_top5', acc_top5, steps)
         avg_top1 = float(avg_top1/nCnt)   
         avg_top5= float(avg_top5/nCnt)   
         print('Test Epoch:{} Top1_acc_val:{:.2f}% Top5_acc_val:{:.2f}% '.format(epoch, avg_top1, avg_top5))
