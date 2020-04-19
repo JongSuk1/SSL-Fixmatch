@@ -1,1 +1,1 @@
-python local_fixmatch.py --gpu_ids 0,1,2,3,4,5,6,7 --lambda-u 1 --epochs 300 --momentum 0.9 --batchsize 128 --mu 1 --name fixmatch_resnet50_batch1_3_128/128
+python train_fixmatch.py --gpu_ids 0,1,2,3,4,5,6,7 --lambda-u 1 --epochs 300 --momentum 0.9 --batchsize 64 --mu 1 --name localfusion_resnet50_batch1_3_64/192

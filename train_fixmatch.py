@@ -21,6 +21,7 @@ import torch.nn.functional as F
 
 import torchvision
 from torchvision import datasets, models, transforms
+from tensorboardX import SummaryWriter
 
 import torch.nn.functional as F
 
@@ -34,6 +35,8 @@ from nsml import DATASET_PATH, IS_ON_NSML
 NUM_CLASSES = 265
 if not IS_ON_NSML:
     DATASET_PATH = '/workspace/cs492h-ssl/meta/'
+    
+
 
 def top_n_accuracy_score(y_true, y_prob, n=5, normalize=True):
     num_obs, num_labels = y_prob.shape
@@ -211,6 +214,8 @@ parser.add_argument('--save_epoch', type=int, default=50, help='saving epoch int
 # hyper-parameters for mix-match
 parser.add_argument('--alpha', default=0.75, type=float)
 parser.add_argument('--lambda-u', default=1, type=float)
+parser.add_argument('--mu', default=1 , type=float)
+
 parser.add_argument('--T', default=0.5, type=float)
 parser.add_argument('--val-iteration', type=int, default=100, help='Number of labeled data')
 parser.add_argument('--threshold', type=float, default=0.95, help='Threshold setting for Fixmatch')
@@ -226,6 +231,8 @@ def main():
     opts = parser.parse_args()
     opts.cuda = 0
 
+    global writer
+    writer = SummaryWriter("runs/"+opts.name)
     # Set GPU
     seed = opts.seed
     random.seed(seed)
@@ -245,6 +252,8 @@ def main():
 
     # Set model
     model = Res50(NUM_CLASSES)
+    if not IS_ON_NSML:
+        model = torch.nn.DataParallel(model)    
 
     parameters = filter(lambda p: p.requires_grad, model.parameters())
     n_parameters = sum([p.data.nelement() for p in model.parameters()])
@@ -322,7 +331,7 @@ def main():
         
         for epoch in range(opts.start_epoch, opts.epochs + 1):
             print('start training')
-            loss, _, _ = train(opts, train_loader, unlabel_loader, model, train_criterion, optimizer, epoch, use_gpu)
+            loss, train_top1, train_top5 = train(opts, train_loader, unlabel_loader, model, train_criterion, optimizer, epoch, use_gpu)
             scheduler.step()
 
             print('start validation')
@@ -334,12 +343,19 @@ def main():
                 if IS_ON_NSML:
                     nsml.save(opts.name + '_best')
                 else:
-                    torch.save(model.state_dict(), os.path.join('runs', opts.name + '_best'))
+                    torch.save(model.state_dict(), os.path.join('runs', opts.name + '_best.pth.tar'))
             if (epoch + 1) % opts.save_epoch == 0:
                 if IS_ON_NSML:
                     nsml.save(opts.name + '_e{}'.format(epoch))
                 else:
-                    torch.save(model.state_dict(), os.path.join('runs', opts.name + '_e{}'.format(epoch)))
+                    torch.save(model.state_dict(), os.path.join('runs', opts.name + '_e{}.pth.tar'.format(epoch)))
+                    
+            if not IS_ON_NSML:
+                writer.add_scalar('train_epoch/loss', loss, epoch)
+                writer.add_scalar('train_epoch/acc_train_top1', train_top1, epoch)       
+                writer.add_scalar('train_epoch/acc_train_top5', train_top5, epoch)  
+                writer.add_scalar('test_epoch/acc_val_top1', acc_top1, epoch)  
+                writer.add_scalar('test_epoch/acc_val_top5', acc_top5, epoch)  
 
                 
 def train(opts, train_loader, unlabel_loader, model, criterion, optimizer, epoch, use_gpu):
@@ -356,7 +372,8 @@ def train(opts, train_loader, unlabel_loader, model, criterion, optimizer, epoch
     
     model.train()
     
-    nCnt =0 
+    nCnt =0
+    steps = (epoch - 1) * opts.val_iteration 
     labeled_train_iter = iter(train_loader)
     unlabeled_train_iter = iter(unlabel_loader)
     
@@ -428,7 +445,14 @@ def train(opts, train_loader, unlabel_loader, model, criterion, optimizer, epoch
         if batch_idx % opts.log_interval == 0:
             print('Train Epoch:{} [{}/{}] Loss:{:.4f}({:.4f}) Top-1:{:.2f}%({:.2f}%) Top-5:{:.2f}%({:.2f}%) '.format( 
                 epoch, batch_idx *inputs_x.size(0), len(train_loader.dataset), losses.val, losses.avg, acc_top1.val, acc_top1.avg, acc_top5.val, acc_top5.avg))            
-                        
+             
+        if not IS_ON_NSML:
+            writer.add_scalar('train_step/loss', loss.item(), steps)
+            writer.add_scalar('train_step/loss_x',Lx.item(), steps)
+            writer.add_scalar('train_step/loss_unlabel', Lu.item(), steps)
+            writer.add_scalar('train_step/acc_top1', acc_top1b, steps)     
+            writer.add_scalar('train_step/acc_top5', acc_top5b, steps)      
+        steps += 1
         nCnt += 1 
         
     avg_loss =  float(avg_loss/nCnt)
@@ -443,13 +467,16 @@ def validation(opts, validation_loader, model, epoch, use_gpu):
     model.eval()
     avg_top1= 0.0
     avg_top5 = 0.0
-    nCnt =0 
+    nCnt =0
+    steps = (epoch - 1) * len(validation_loader)
+
     with torch.no_grad():
         for batch_idx, data in enumerate(validation_loader):
             inputs, labels = data
             if use_gpu :
                 inputs = inputs.cuda()
             inputs = Variable(inputs)
+            steps+=1
             nCnt +=1
             embed_fea, preds = model(inputs)
 
@@ -458,6 +485,9 @@ def validation(opts, validation_loader, model, epoch, use_gpu):
             avg_top1 += acc_top1
             avg_top5 += acc_top5
 
+            if not IS_ON_NSML:
+                writer.add_scalar('test_step/acc_val_top1', acc_top1, steps)    
+                writer.add_scalar('test_step/acc_val_top5', acc_top5, steps)
         avg_top1 = float(avg_top1/nCnt)   
         avg_top5= float(avg_top5/nCnt)   
         print('Test Epoch:{} Top1_acc_val:{:.2f}% Top5_acc_val:{:.2f}% '.format(epoch, avg_top1, avg_top5))
