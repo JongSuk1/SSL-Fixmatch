@@ -230,7 +230,7 @@ parser.add_argument('--save_epoch', type=int, default=50, help='saving epoch int
 
 # hyper-parameters for fixmatch
 parser.add_argument('--lambda-u', default=1, type=float)
-parser.add_argument('--mu', default=1 , type=int, help"Batch ratio between labeled/unlabeled")
+parser.add_argument('--mu', default=1 , type=int, help="Batch ratio between labeled/unlabeled")
 parser.add_argument('--threshold', type=float, default=0.95, help='Threshold setting for Fixmatch')
 
 
