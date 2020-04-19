@@ -72,7 +72,7 @@ def adjust_learning_rate(opts, optimizer, epoch):
     Linear Warmup.
     """
     if epoch <= 5:
-        lr = lr  + (0.4-0.03) / 5
+        lr = opts.lr + (0.4-0.03) * (epoch - 1) / 4
 
     """
     Decay same as ImageNet setting.
