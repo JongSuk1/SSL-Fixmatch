@@ -10,11 +10,11 @@ import numpy as np
 import shutil
 import random
 import time
+import math
 
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from torch.optim import lr_scheduler
 from torch.optim.lr_scheduler import LambdaLR
 from torch.autograd import Variable
 import torch.backends.cudnn as cudnn
@@ -195,13 +195,10 @@ def get_cosine_schedule_with_warmup(optimizer,
                                     num_cycles=7./16.,
                                     last_epoch=-1):
     def _lr_lambda(current_step):
-        if current_step < num_warmup_steps:
-            return float(current_step) / float(max(1, num_warmup_steps))
-        no_progress = float(current_step - num_warmup_steps) / \
+        no_progress = float(current_step) / \
             float(max(1, num_training_steps - num_warmup_steps))
         return max(0., math.cos(math.pi * num_cycles * no_progress))
-
-    return LambdaLR(optimizer, _lr_lambda, last_epoch)
+    return LambdaLR(optimizer, _lr_lambda)
 
 ######################################################################
 # Options
@@ -341,11 +338,7 @@ def main():
 
         iter_num = 16078 // opts.batchsize 
         # INSTANTIATE STEP LEARNING SCHEDULER CLASS
-        scheduler = get_cosine_schedule_with_warmup(optimizer,
-                                    0,
-                                    iter_num * opts.epochs,
-                                    num_cycles=7./16.,
-                                    last_epoch=-1)
+        scheduler = get_cosine_schedule_with_warmup(optimizer,0,iter_num * opts.epochs)
         # Train and Validation 
         best_acc = 0.0
         
