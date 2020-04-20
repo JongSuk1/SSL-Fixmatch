@@ -15,6 +15,7 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.optim import lr_scheduler
+from torch.optim.lr_scheduler import LambdaLR
 from torch.autograd import Variable
 import torch.backends.cudnn as cudnn
 import torch.nn.functional as F
