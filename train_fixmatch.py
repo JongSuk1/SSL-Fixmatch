@@ -338,9 +338,13 @@ def main():
         # INSTANTIATE LOSS CLASS
         train_criterion = SemiLoss()
 
+        iter_num = 16078 // opts.batchsize 
         # INSTANTIATE STEP LEARNING SCHEDULER CLASS
-        scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer,  milestones=[50, 150], gamma=0.1)
-
+        scheduler = get_cosine_schedule_with_warmup(optimizer,
+                                    0,
+                                    iter_num * opts.epochs,
+                                    num_cycles=7./16.,
+                                    last_epoch=-1):
         # Train and Validation 
         best_acc = 0.0
         
@@ -348,7 +352,7 @@ def main():
             print('start training')
             #adjust_learning_rate(opts, optimizer, epoch)
             scheduler.step()
-            loss, train_top1, train_top5 = train(opts, train_loader, unlabel_loader, model, train_criterion, optimizer, epoch, use_gpu)
+            loss, train_top1, train_top5 = train(opts, train_loader, unlabel_loader, model, train_criterion, optimizer, epoch, use_gpu, scheduler)
 
             print('start validation')
             acc_top1, acc_top5 = validation(opts, validation_loader, model, epoch, use_gpu)
@@ -374,7 +378,7 @@ def main():
 #                writer.add_scalar('test_epoch/acc_val_top5', acc_top5, epoch)  
 
                 
-def train(opts, train_loader, unlabel_loader, model, criterion, optimizer, epoch, use_gpu):
+def train(opts, train_loader, unlabel_loader, model, criterion, optimizer, epoch, use_gpu, scheduler):
     
     losses = AverageMeter()
     losses_x = AverageMeter()
@@ -440,6 +444,7 @@ def train(opts, train_loader, unlabel_loader, model, criterion, optimizer, epoch
         # compute gradient and do SGD step
         loss.backward()
         optimizer.step()
+        scheduler.step()
         
         losses.update(loss.item(), inputs_x.size(0))
         losses_x.update(Lx.item(), inputs_x.size(0))
