@@ -344,7 +344,7 @@ def main():
                                     0,
                                     iter_num * opts.epochs,
                                     num_cycles=7./16.,
-                                    last_epoch=-1):
+                                    last_epoch=-1)
         # Train and Validation 
         best_acc = 0.0
         
