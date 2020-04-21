@@ -343,6 +343,8 @@ def main():
 
         # Set optimizer
         #optimizer = optim.Adam(model.parameters(), lr=opts.lr)
+        iter_num = 16078 // opts.batchsize 
+
         optimizer = optim.SGD(model.parameters(), lr=opts.lr,  momentum=opts.momentum, nesterov=True, weight_decay=0.0001)
         scheduler = get_cosine_schedule_with_warmup(optimizer,0,iter_num * opts.epochs)        
         criterion = nn.CrossEntropyLoss().cuda()
