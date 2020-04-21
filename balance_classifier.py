@@ -114,12 +114,16 @@ def linear_rampup(current, rampup_length):
         current = np.clip(current / rampup_length, 0.0, 1.0)
         return float(current)
         
-class SemiLoss(object):
-    def __call__(self, outputs_x, targets_x, outputs_u, targets_u, epoch, final_epoch):
-        probs_u = torch.softmax(outputs_u, dim=1)
-        Lx = -torch.mean(torch.sum(F.log_softmax(outputs_x, dim=1) * targets_x, dim=1))
-        Lu = torch.mean((probs_u - targets_u)**2)
-        return Lx, Lu, opts.lambda_u * linear_rampup(epoch, final_epoch)
+def get_cosine_schedule_with_warmup(optimizer,
+                                    num_warmup_steps,
+                                    num_training_steps,
+                                    num_cycles=8./16.,
+                                    last_epoch=-1):
+    def _lr_lambda(current_step):
+        no_progress = float(current_step) / \
+            float(max(1, num_training_steps - num_warmup_steps))
+        return max(0., math.cos(math.pi * num_cycles * no_progress))
+    return LambdaLR(optimizer, _lr_lambda)
 
 def interleave_offsets(batch, nu):
     groups = [batch // (nu + 1)] * (nu + 1)
@@ -215,21 +219,21 @@ parser.add_argument('--start_epoch', type=int, default=1, metavar='N', help='num
 parser.add_argument('--epochs', type=int, default=10, metavar='N', help='number of epochs to train (default: 200)')
 
 # basic settings
-parser.add_argument('--name',default='HA_trial3', type=str, help='output model name')
+parser.add_argument('--name',default='tuning_w_cosine', type=str, help='output model name')
 parser.add_argument('--gpu_ids',default='0', type=str,help='gpu_ids: e.g. 0  0,1,2  0,2')
 parser.add_argument('--batchsize', default=256, type=int, help='batchsize')
 parser.add_argument('--seed', type=int, default=123, help='random seed')
 
 # basic hyper-parameters
 parser.add_argument('--momentum', type=float, default=0.9, metavar='LR', help=' ')
-parser.add_argument('--lr', type=float, default=0.03, metavar='LR', help='learning rate (default: 5e-5)')
+parser.add_argument('--lr', type=float, default=0.2, metavar='LR', help='learning rate (default: 5e-5)')
 parser.add_argument('--imResize', default=256, type=int, help='')
 parser.add_argument('--imsize', default=224, type=int, help='')
 parser.add_argument('--lossXent', type=float, default=1, help='lossWeight for Xent')
 
 # arguments for logging and backup
 parser.add_argument('--log_interval', type=int, default=10, metavar='N', help='logging training status')
-parser.add_argument('--save_epoch', type=int, default=50, help='saving epoch interval')
+parser.add_argument('--save_epoch', type=int, default=2, help='saving epoch interval')
 
 # hyper-parameters for fixmatch
 parser.add_argument('--lambda-u', default=1, type=float)
@@ -340,14 +344,14 @@ def main():
         # Set optimizer
         #optimizer = optim.Adam(model.parameters(), lr=opts.lr)
         optimizer = optim.SGD(model.parameters(), lr=opts.lr,  momentum=opts.momentum, nesterov=True, weight_decay=0.0001)
-        
+        scheduler = get_cosine_schedule_with_warmup(optimizer,0,iter_num * opts.epochs)        
         criterion = nn.CrossEntropyLoss().cuda()
         best_acc = 0.0
         
         for epoch in range(opts.start_epoch, opts.epochs + 1):
             print('start training')
             #adjust_learning_rate(opts, optimizer, epoch)
-            loss, train_top1, train_top5 = train(opts, train_loader, model, criterion, optimizer, epoch, use_gpu)
+            loss, train_top1, train_top5 = train(opts, train_loader, model, criterion, optimizer, epoch, use_gpu, scheduler)
             acc_top1, acc_top5 = validation(opts, validation_loader, model, epoch, use_gpu)
             
             is_best = acc_top1 > best_acc
@@ -365,7 +369,7 @@ def main():
                     torch.save(model.state_dict(), os.path.join('runs', opts.name + '_e{}.pth.tar'.format(epoch)))
                 
 
-def train(opts, train_loader, model, criterion, optimizer, epoch, use_gpu):
+def train(opts, train_loader, model, criterion, optimizer, epoch, use_gpu, scheduler):
     batch_time = AverageMeter()
     data_time = AverageMeter()
     losses = AverageMeter()
@@ -410,6 +414,7 @@ def train(opts, train_loader, model, criterion, optimizer, epoch, use_gpu):
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
+        scheduler.step()
 
         # measure elapsed time
         batch_time.update(time.time() - end)
