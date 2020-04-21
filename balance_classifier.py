@@ -289,11 +289,21 @@ def main():
             nsml.paused(scope=locals())
     ################################
 
+    def model_load(dir_name):
+        m = torch.load(os.path.join(dir_name,'model.pt'))
+        model.load_state_dict(m)    
+
+    def model_save(dir_name, **kwargs):
+        m = kwargs['model']
+        torch.save(m.state_dict(), os.path.join(dir_name, 'model.pt'))
+
+
 
     ### Load the model
     if IS_ON_NSML:
-        checkpoint = torch.load(opts.pretrained)
-        nsml.load()
+        nsml.bind(save=model_save, load=model_load, model=model)
+        ckpt_name = 'my_model'
+        nsml.load(checkpoint=ckpt_name, session = 'kaist_12/fashion_eval/9')
     else:
         checkpoint = torch.load("./runs/HA_trial3_e299.pth.tar")
         model.load_state_dict(checkpoint)
