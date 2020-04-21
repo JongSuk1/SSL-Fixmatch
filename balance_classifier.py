@@ -421,8 +421,8 @@ def train(opts, train_loader, model, criterion, optimizer, epoch, use_gpu):
                   'Time {batch_time.val:.3f} ({batch_time.avg:.3f})\t'
                   'Data {data_time.val:.3f} ({data_time.avg:.3f})\t'
                   'Loss {loss.val:.4f} ({loss.avg:.4f})\t'
-                  'Top 1-acc {top1.val:.4f} ({top1.avg:.4f})\t'
-                  'Top 5-acc {top5.val:.4f} ({top5.avg:.4f})'.format(
+                  'Top 1-err {top1.val:.4f} ({top1.avg:.4f})\t'
+                  'Top 5-err {top5.val:.4f} ({top5.avg:.4f})'.format(
                 epoch, opts.epochs, i, len(train_loader), LR=opts.lr, batch_time=batch_time,
                 data_time=data_time, loss=losses, top1=top1, top5=top5))
 
