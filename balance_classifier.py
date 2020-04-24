@@ -178,7 +178,7 @@ def _infer(model, root_path, test_loader=None):
                                    transforms.CenterCrop(opts.imsize),
                                    transforms.ToTensor(),
                                    transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
-                               ])), batch_size=opts.batchsize, shuffle=False, num_workers=4, pin_memory=True)
+                               ])), batch_size=32, shuffle=False, num_workers=4, pin_memory=True)
         print('loaded {} test images'.format(len(test_loader.dataset)))
 
     outputs = []
@@ -221,7 +221,7 @@ parser.add_argument('--epochs', type=int, default=10, metavar='N', help='number 
 # basic settings
 parser.add_argument('--name',default='tuning_w_cosine', type=str, help='output model name')
 parser.add_argument('--gpu_ids',default='0', type=str,help='gpu_ids: e.g. 0  0,1,2  0,2')
-parser.add_argument('--batchsize', default=256, type=int, help='batchsize')
+parser.add_argument('--batchsize', default=265, type=int, help='batchsize')
 parser.add_argument('--seed', type=int, default=123, help='random seed')
 
 # basic hyper-parameters
@@ -317,6 +317,7 @@ def main():
         
         #Sampler
         crtSampler = ClassAwareSampler(data_source=DATASET_PATH + '/train/', ids=train_ids)
+        crtSampler_val = ClassAwareSampler(data_source=DATASET_PATH + '/train/', ids=val_ids)
 
         train_loader = torch.utils.data.DataLoader(
             SimpleImageLoader(DATASET_PATH, 'train', train_ids,
@@ -338,7 +339,7 @@ def main():
                                    transforms.CenterCrop(opts.imsize),
                                    transforms.ToTensor(),
                                    transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),])),
-                               batch_size=opts.batchsize, shuffle=False, num_workers=4, pin_memory=True, drop_last=False)
+                               batch_size=opts.batchsize, sampler=crtSampler_val, num_workers=4, pin_memory=True, drop_last=False)
         print('validation_loader done')
 
         # Set optimizer

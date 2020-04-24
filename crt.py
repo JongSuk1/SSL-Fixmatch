@@ -62,7 +62,7 @@ def class_aware_sample_generator (cls_iter, data_iter_list, n, num_samples_cls=1
 
 class ClassAwareSampler (Sampler):
     
-    def __init__(self, data_source, ids, num_samples_cls=4,):
+    def __init__(self, data_source, ids, num_samples_cls=1,):
         meta_file =  os.path.join(data_source, 'train_label')
 
         imclasses = []
