@@ -33,6 +33,8 @@ from randaugment import RandAugmentMC
 import nsml
 from nsml import DATASET_PATH, IS_ON_NSML
 
+from crt import ClassAwareSampler
+
 NUM_CLASSES = 265
 if not IS_ON_NSML:
     DATASET_PATH = '/workspace/cs492h-ssl/meta/'
@@ -287,6 +289,9 @@ def main():
         # Set dataloader
         train_ids, val_ids, unl_ids = split_ids(os.path.join(DATASET_PATH, 'train/train_label'), 0.2)
         print('found {} train, {} validation and {} unlabeled images'.format(len(train_ids), len(val_ids), len(unl_ids)))
+
+        crtSampler = ClassAwareSampler(data_source=DATASET_PATH + '/train/', ids=train_ids)
+
         train_loader = torch.utils.data.DataLoader(
             SimpleImageLoader(DATASET_PATH, 'train', train_ids,
                               transform=transforms.Compose([
@@ -296,7 +301,8 @@ def main():
                                   transforms.RandomVerticalFlip(),
                                   transforms.ToTensor(),
                                   transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),])),
-                                batch_size=opts.batchsize, shuffle=True, num_workers=4, pin_memory=True, drop_last=True)
+                                batch_size=opts.batchsize, num_workers=4, pin_memory=True, drop_last=True,
+                                sampler=crtSampler)
         print('train_loader done')
 
         unlabel_loader = torch.utils.data.DataLoader(
@@ -326,7 +332,8 @@ def main():
                                    transforms.CenterCrop(opts.imsize),
                                    transforms.ToTensor(),
                                    transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),])),
-                               batch_size=opts.batchsize, shuffle=False, num_workers=4, pin_memory=True, drop_last=False)
+                               batch_size=opts.batchsize, num_workers=4, pin_memory=True, drop_last=False,
+                               sampler=crtSampler)
         print('validation_loader done')
 
         # Set optimizer
