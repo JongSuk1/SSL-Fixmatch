@@ -1,1 +1,5 @@
-python train_fixmatch.py --gpu_ids 0,1,2,3,4,5,6,7 --lambda-u 1 --epochs 300 --momentum 0.9 --batchsize 64 --mu 1 --name localfusion_resnet50_batch1_3_64/192
+python train_fixmatch.py --gpu_ids 0,1,2,3,4,5,6,7 --batchsize 128 --lambda-u 1 --mu 1 --threshold 0.85 --scheduler 0 --name 1_1_85_cos_sl
+
+nsml run -d fashion_eval -e train_fixmatch.py -a "--batchsize 128 --lambda-u 1 --mu 1 --threshold 0.85 --scheduler 1 --label_strong 0.3 --smooth 1 --name t85_sl3_smth"
+
+sl:strong label

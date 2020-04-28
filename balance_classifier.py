@@ -6,13 +6,14 @@ from __future__ import unicode_literals
 import os
 import argparse
 
-import wget
+#import wget
 
 import numpy as np
 import shutil
 import random
 import time
 import math
+from collections import OrderedDict
 
 import torch
 import torch.nn as nn
@@ -294,21 +295,26 @@ def main():
 
     ### Load the model
     if IS_ON_NSML:
-        url = "https://docs.google.com/uc?export=download&id=1J7wlKlRpW_0Qm0vbDKXlmla4IpUsMhfF"
-        wget.download(url,'./')
-        m = torch.load('./model.pt')
+        m = torch.load('./MoCo_Checkpoint/checkpoint_0200.pth.tar')
         model.load_state_dict(m)
         model.classifier.apply(weights_init_classifier)
     else:
-        checkpoint = torch.load("./runs/HA_trial3_e299.pth.tar")
-        model.load_state_dict(checkpoint)
+        checkpoint = torch.load("./MoCo_Checkpoint/checkpoint_0200.pth.tar")
+        #model.load_state_dict(checkpoint['state_dict'])
+        state_dict = OrderedDict()
+        for key, value in checkpoint['state_dict'].items():
+            if ('encoder_q' in key and 'num_batches_tracked' not in key and 'fc' not in key):
+                print(key)
+                state_dict['model'+key[16:]] = value
+        torch.save(state_dict, "moco_ours.pt")
+        model.load_state_dict(state_dict, strict=False)
         model.module.classifier.apply(weights_init_classifier)
     
     
     if opts.mode == 'train':
         model.train()
         # Set dataloader
-        train_ids, val_ids, unl_ids = split_ids(os.path.join(DATASET_PATH, 'train/train_label'), 0.2)
+        train_ids, val_ids, unl_ids = split_ids(os.path.join(DATASET_PATH, 'train/train_label'), 0.05)
         print('found {} train, {} validation and {} unlabeled images'.format(len(train_ids), len(val_ids), len(unl_ids)))
         
         #Sampler
