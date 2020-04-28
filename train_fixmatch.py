@@ -11,6 +11,7 @@ import shutil
 import random
 import time
 import math
+import wget
 
 import torch
 import torch.nn as nn
@@ -35,6 +36,8 @@ from randaugment import RandAugmentMC
 
 import nsml
 from nsml import DATASET_PATH, IS_ON_NSML
+
+from crt import ClassAwareSampler
 
 NUM_CLASSES = 265
 if not IS_ON_NSML:
@@ -245,6 +248,7 @@ parser.add_argument('--epochs', type=int, default=300, metavar='N', help='number
 
 # basic settings
 parser.add_argument('--name',default='HA_trial3', type=str, help='output model name')
+
 parser.add_argument('--gpu_ids',default='0,1,2,3,4,5,6,7', type=str,help='gpu_ids: e.g. 0  0,1,2  0,2')
 parser.add_argument('--batchsize', default=128, type=int, help='batchsize')
 parser.add_argument('--seed', type=int, default=123, help='random seed')
@@ -265,8 +269,8 @@ parser.add_argument('--save_epoch', type=int, default=50, help='saving epoch int
 # hyper-parameters for fixmatch
 parser.add_argument('--lambda-u', default=1, type=float)
 parser.add_argument('--mu', default=1 , type=int, help="Batch ratio between labeled/unlabeled")
-parser.add_argument('--threshold', type=float, default=0.95, help='Threshold setting for Fixmatch')
 parser.add_argument('--label_strong', type=float, default=0, help='label strong augmentation ratio')
+parser.add_argument('--threshold', type=float, default=0.85, help='Threshold setting for Fixmatch')
 
 
 parser.add_argument('--T', default=0.5, type=float)
@@ -322,24 +326,22 @@ def main():
         if opts.pause:
             nsml.paused(scope=locals())
     ################################
-
+    
+    '''
+    if IS_ON_NSML:
+        print("load our best checkpoint...")
+        url = "https://docs.google.com/uc?export=download&id=1J7wlKlRpW_0Qm0vbDKXlmla4IpUsMhfF"
+        wget.download(url,'./')
+        m = torch.load('./model.pt')
+        model.load_state_dict(m)
+        print("complete.")
+    '''
+    
     if opts.mode == 'train':
         model.train()
         # Set dataloader
         train_ids, val_ids, unl_ids = split_ids(os.path.join(DATASET_PATH, 'train/train_label'), 0.1)
         print('found {} train, {} validation and {} unlabeled images'.format(len(train_ids), len(val_ids), len(unl_ids)))
-        '''
-        train_loader = torch.utils.data.DataLoader(
-            SimpleImageLoader(DATASET_PATH, 'train', train_ids,
-                              transform=transforms.Compose([
-                                  transforms.Resize(opts.imResize),
-                                  transforms.RandomResizedCrop(opts.imsize),
-                                  transforms.RandomHorizontalFlip(),
-                                  transforms.RandomVerticalFlip(),
-                                  transforms.ToTensor(),
-                                  transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),])),
-                                batch_size=opts.batchsize, shuffle=True, num_workers=4, pin_memory=True, drop_last=True)
-        '''
         
         train_loader = torch.utils.data.DataLoader(
             FixMatchImageLoader(DATASET_PATH, 'train', train_ids, ratio = opts.label_strong,
@@ -359,7 +361,7 @@ def main():
                                   transforms.ToTensor(),
                                   transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),])), 
             batch_size=opts.batchsize, shuffle=True, num_workers=4, pin_memory=True, drop_last=True)
-            
+
         print('train_loader done')
 
         unlabel_loader = torch.utils.data.DataLoader(
@@ -389,7 +391,8 @@ def main():
                                    transforms.CenterCrop(opts.imsize),
                                    transforms.ToTensor(),
                                    transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),])),
-                               batch_size=opts.batchsize, shuffle=False, num_workers=4, pin_memory=True, drop_last=False)
+                               batch_size=opts.batchsize, num_workers=4, pin_memory=True, drop_last=False,
+                               shuffle=True)
         print('validation_loader done')
 
         # Set optimizer
@@ -399,7 +402,7 @@ def main():
         # INSTANTIATE LOSS CLASS
         train_criterion = SemiLoss()
 
-        iter_num = 16078 // opts.batchsize 
+        iter_num = len(train_ids) // opts.batchsize 
         # INSTANTIATE STEP LEARNING SCHEDULER CLASS
         if opts.scheduler == 0:
             scheduler = get_cosine_schedule_with_warmup(optimizer,0,iter_num * opts.epochs)

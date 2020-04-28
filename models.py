@@ -377,5 +377,4 @@ class Dense121(nn.Module):
         fea =  x.view(x.size(0), -1)
         embed_fea = self.model.features.fc_embed(fea)
         pred = self.model.classifier(fea)        
-        return embed_fea, pred              
-        
+        return embed_fea, pred      
