@@ -39,7 +39,7 @@ class FixMatchImageLoader(torch.utils.data.Dataset):
                 instance_id, label, file_name = line.strip().split()        
                 if int(label) == -1 and (split != 'unlabel' and split != 'test'):
                     continue
-                if int(label) != -1 and (split == 'unlabel' or split == 'test'):
+                if int(label) != -1 and (split == 'test'):
                     continue
                 if (ids is None) or (int(instance_id) in ids):
                     if os.path.exists(os.path.join(self.impath, file_name)):

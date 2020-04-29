@@ -75,4 +75,3 @@ for label in imclasses:
     if label != -1:
         countlabel[label] += 1
 print(countlabel)
-

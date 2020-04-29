@@ -155,8 +155,8 @@ def split_ids(path, ratio):
 
     perm1 = np.random.permutation(np.arange(len(train_ids)))
     perm2 = np.random.permutation(np.arange(len(val_ids)))
-    train_ids = ids_l[perm1][:]
-    val_ids = ids_l[perm2][:]
+    train_ids = train_ids[perm1]
+    val_ids = val_ids[perm2]
 
     return train_ids, val_ids, ids_u
 
