@@ -129,24 +129,34 @@ def interleave(xy, batch):
 
 def split_ids(path, ratio):
     with open(path) as f:
-        ids_l = []
+        ids_l = [[] for i in range(265)]
         ids_u = []
         for i, line in enumerate(f.readlines()):
             if i == 0 or line == '' or line == '\n':
                 continue
             line = line.replace('\n', '').split('\t')
             if int(line[1]) >= 0:
-                ids_l.append(int(line[0]))
+                ids_l[int(line[1])].append(int(line[0]))
             else:
                 ids_u.append(int(line[0]))
+    
+    train_ids = []
+    val_ids = []
 
-    ids_l = np.array(ids_l)
+    for labels in ids_l:
+        cut = int(ratio*len(labels))
+        train_ids += labels[cut:]
+        val_ids += labels[:cut]
+    
+    ids_u += train_ids
     ids_u = np.array(ids_u)
+    train_ids = np.array(train_ids)
+    val_ids = np.array(val_ids)
 
-    perm = np.random.permutation(np.arange(len(ids_l)))
-    cut = int(ratio*len(ids_l))
-    train_ids = ids_l[perm][cut:]
-    val_ids = ids_l[perm][:cut]
+    perm1 = np.random.permutation(np.arange(len(train_ids)))
+    perm2 = np.random.permutation(np.arange(len(val_ids)))
+    train_ids = ids_l[perm1][:]
+    val_ids = ids_l[perm2][:]
 
     return train_ids, val_ids, ids_u
 
@@ -269,7 +279,6 @@ parser.add_argument('--save_epoch', type=int, default=50, help='saving epoch int
 # hyper-parameters for fixmatch
 parser.add_argument('--lambda-u', default=1, type=float)
 parser.add_argument('--mu', default=1 , type=int, help="Batch ratio between labeled/unlabeled")
-parser.add_argument('--label_strong', type=float, default=0, help='label strong augmentation ratio')
 parser.add_argument('--threshold', type=float, default=0.85, help='Threshold setting for Fixmatch')
 
 
@@ -344,23 +353,15 @@ def main():
         print('found {} train, {} validation and {} unlabeled images'.format(len(train_ids), len(val_ids), len(unl_ids)))
         
         train_loader = torch.utils.data.DataLoader(
-            FixMatchImageLoader(DATASET_PATH, 'train', train_ids, ratio = opts.label_strong,
+            SimpleImageLoader(DATASET_PATH, 'train', train_ids,
                               transform=transforms.Compose([
                                   transforms.Resize(opts.imResize),
                                   transforms.RandomResizedCrop(opts.imsize),
                                   transforms.RandomHorizontalFlip(),
                                   transforms.RandomVerticalFlip(),
                                   transforms.ToTensor(),
-                                  transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),]),
-                              strong_transform=transforms.Compose([
-                                  transforms.Resize(opts.imResize),
-                                  transforms.RandomResizedCrop(opts.imsize),
-                                  transforms.RandomHorizontalFlip(),
-                                  transforms.RandomVerticalFlip(),
-                                  RandAugmentMC(n=2, m=10),
-                                  transforms.ToTensor(),
-                                  transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),])), 
-            batch_size=opts.batchsize, shuffle=True, num_workers=4, pin_memory=True, drop_last=True)
+                                  transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),])),
+                                batch_size=opts.batchsize, shuffle=True, num_workers=4, pin_memory=True, drop_last=True)
 
         print('train_loader done')
 
