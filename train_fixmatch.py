@@ -38,6 +38,7 @@ import nsml
 from nsml import DATASET_PATH, IS_ON_NSML
 
 from crt import ClassAwareSampler
+from efficientnet_pytorch import EfficientNet
 
 NUM_CLASSES = 265
 if not IS_ON_NSML:
@@ -212,7 +213,7 @@ def _infer(model, root_path, test_loader=None):
     for idx, image in enumerate(test_loader):
         if torch.cuda.is_available():
             image = image.cuda()
-        _, probs = model(image)
+        probs = model(image)
         output = torch.argmax(probs, dim=1)
         output = output.detach().cpu().numpy()
         outputs.append(output)
@@ -259,14 +260,14 @@ parser.add_argument('--epochs', type=int, default=300, metavar='N', help='number
 # basic settings
 parser.add_argument('--name',default='HA_trial3', type=str, help='output model name')
 
-parser.add_argument('--gpu_ids',default='0,1,2,3,4,5,6,7', type=str,help='gpu_ids: e.g. 0  0,1,2  0,2')
+parser.add_argument('--gpu_ids',default='0', type=str,help='gpu_ids: e.g. 0  0,1,2  0,2')
 parser.add_argument('--batchsize', default=128, type=int, help='batchsize')
 parser.add_argument('--seed', type=int, default=123, help='random seed')
 
 # basic hyper-parameters
 parser.add_argument('--momentum', type=float, default=0.9, metavar='LR', help=' ')
 parser.add_argument('--lr', type=float, default=0.03, metavar='LR', help='learning rate (default: 5e-5)')
-parser.add_argument('--scheduler', type=int, default=0, metavar='LR', help='0: cosine, 1: multistep, 2: adjust learning rate')
+parser.add_argument('--scheduler', type=int, default=1, metavar='LR', help='0: cosine, 1: multistep, 2: adjust learning rate')
 
 parser.add_argument('--imResize', default=256, type=int, help='')
 parser.add_argument('--imsize', default=224, type=int, help='')
@@ -283,7 +284,7 @@ parser.add_argument('--threshold', type=float, default=0.85, help='Threshold set
 
 
 parser.add_argument('--T', default=0.5, type=float)
-parser.add_argument('--smooth', type = int, default=1, help='use smoothcrossentropy loss')
+parser.add_argument('--smooth', type = int, default=0, help='use smoothcrossentropy loss')
 
 parser.add_argument('--val-iteration', type=int, default=100, help='Number of labeled data')
 
@@ -318,8 +319,11 @@ def main():
 
 
     # Set model
-    model = Res50(NUM_CLASSES)
-    if not IS_ON_NSML:
+    #model = Res50(NUM_CLASSES)
+    if IS_ON_NSML:
+        model = EfficientNet.from_pretrained('efficientnet-b0', num_classes=265).cuda()
+    else:
+        model = EfficientNet.from_pretrained('efficientnet-b4', num_classes=265).cuda()
         model = torch.nn.DataParallel(model)    
 
     parameters = filter(lambda p: p.requires_grad, model.parameters())
@@ -399,6 +403,8 @@ def main():
         # Set optimizer
         #optimizer = optim.Adam(model.parameters(), lr=opts.lr)
         optimizer = optim.SGD(model.parameters(), lr=opts.lr,  momentum=opts.momentum, nesterov=True, weight_decay=0.0001)
+        fc_optimizer = optim.SGD(model.parameters(), lr=0.1,  momentum=opts.momentum, nesterov=True, weight_decay=0.0001)
+
 
         # INSTANTIATE LOSS CLASS
         train_criterion = SemiLoss()
@@ -417,7 +423,10 @@ def main():
         best_top5 = 0.0
         
         for epoch in range(opts.start_epoch, opts.epochs + 1):
-            loss, train_top1, train_top5 = train(opts, train_loader, unlabel_loader, model, train_criterion, optimizer, epoch, use_gpu, scheduler)
+            if epoch != 1:
+                loss, train_top1, train_top5 = train(opts, train_loader, unlabel_loader, model, train_criterion, optimizer, epoch, use_gpu, scheduler)
+            else:
+                loss, train_top1, train_top5 = train(opts, train_loader, unlabel_loader, model, train_criterion, fc_optimizer, epoch, use_gpu, scheduler)
 
             print('start training')
             if opts.scheduler == 0:
@@ -484,6 +493,18 @@ def train(opts, train_loader, unlabel_loader, model, criterion, optimizer, epoch
     avg_top5 = 0.0
     
     model.train()
+    if epoch == 1:
+        for param in model.parameters():
+            param.requires_grad = False
+        if IS_ON_NSML:
+            model._fc.weight.requires_grad = True
+            model._fc.weight.requires_grad = True
+        else:
+            model.module._fc.weight.requires_grad = True
+            model.module._fc.bias.requires_grad = True
+    else:
+        for param in model.parameters():
+            param.requires_grad = True    
     
     nCnt =0
     steps = (epoch - 1) * opts.val_iteration 
@@ -516,7 +537,7 @@ def train(opts, train_loader, unlabel_loader, model, criterion, optimizer, epoch
         
         with torch.no_grad():
             # compute guessed labels of unlabel samples
-            embed_u1, pred_u1 = model(inputs_u1)
+            pred_u1 = model(inputs_u1)
             pseudo_label = torch.softmax(pred_u1.detach_(), dim=-1)
             max_probs, targets_u = torch.max(pseudo_label, dim=-1)
             mask = max_probs.ge(opts.threshold).float()
@@ -530,10 +551,10 @@ def train(opts, train_loader, unlabel_loader, model, criterion, optimizer, epoch
             x_criterion = SmoothCrossEntropyLoss(smoothing=0.1).cuda()
             u_criterion = SmoothCrossEntropyLoss(reduction='none', smoothing=0.1).cuda()
 
-        x_embed, x_pred = model(inputs_x)
+        x_pred = model(inputs_x)
         Lx = x_criterion(x_pred, targets_x)
         
-        u_embed, u_pred = model(inputs_u2)
+        u_pred = model(inputs_u2)
         Lu = (u_criterion(u_pred, targets_u) * mask).mean()
 
         loss = Lx + opts.lambda_u * Lu
@@ -550,7 +571,7 @@ def train(opts, train_loader, unlabel_loader, model, criterion, optimizer, epoch
         
         with torch.no_grad():
             # compute guessed labels of unlabel samples
-            embed_x, pred_x1 = model(inputs_x)
+            pred_x1 = model(inputs_x)
 
         acc_top1b = top_n_accuracy_score(targets_x.data.cpu().numpy(), pred_x1.data.cpu().numpy(), n=1)*100
         acc_top5b = top_n_accuracy_score(targets_x.data.cpu().numpy(), pred_x1.data.cpu().numpy(), n=5)*100    
@@ -601,7 +622,7 @@ def validation(opts, validation_loader, model, epoch, use_gpu):
             inputs = Variable(inputs)
             steps+=1
             nCnt +=1
-            embed_fea, preds = model(inputs)
+            preds = model(inputs)
 
             acc_top1 = top_n_accuracy_score(labels.numpy(), preds.data.cpu().numpy(), n=1)*100
             acc_top5 = top_n_accuracy_score(labels.numpy(), preds.data.cpu().numpy(), n=5)*100

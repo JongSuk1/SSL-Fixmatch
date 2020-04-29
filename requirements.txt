@@ -3,3 +3,4 @@ tqdm
 pytorch_metric_learning
 torchvision
 wget
+efficientnet-pytorch
