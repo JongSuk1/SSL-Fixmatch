@@ -294,6 +294,7 @@ parser.add_argument('--pause', type=int, default=0)
 parser.add_argument('--mode', type=str, default='train')
 parser.add_argument('--checkpoint', type=str, default='l3_m1_t9_mn_best')
 parser.add_argument('--session', type=str, default='kaist_12/fashion_eval/184')
+parser.add_argument('--local', type=int, default=0)
 ################################
 
 def main():
@@ -322,18 +323,15 @@ def main():
 
     # Set model
     #model = Res50(NUM_CLASSES)
-    if IS_ON_NSML:
-        model = EfficientNet.from_pretrained('efficientnet-b4', num_classes=265).cuda()
+    if opts.local == 0:
+        model = EfficientNet.from_pretrained('efficientnet-b0', num_classes=265).cuda()
     else:
         model = EfficientNet.from_pretrained('efficientnet-b4', num_classes=265).cuda()
-        model = torch.nn.DataParallel(model)    
+        model = torch.nn.DataParallel(model).cuda()
 
     parameters = filter(lambda p: p.requires_grad, model.parameters())
     n_parameters = sum([p.data.nelement() for p in model.parameters()])
     print('  + Number of params: {}'.format(n_parameters))
-
-    if use_gpu:
-        model = torch.nn.DataParallel(model)
 
     ### DO NOT MODIFY THIS BLOCK ###
     if IS_ON_NSML:
@@ -344,15 +342,19 @@ def main():
     
     
     if IS_ON_NSML:
-        print("load our best checkpoint...")
-        url = "https://docs.google.com/uc?export=download&id=12sVwiibqTZnEzRvuhSUV3ZWaK7RQNBIp"
-        wget.download(url,'./')
-        m = torch.load('./l3_m3_t85_mn_best.pth.tar')
-        #model = torch.nn.DataParallel(model)
-        model.load_state_dict(m)
-        #nsml.load(checkpoint=opts.checkpoint, session=opts.session)
-        nsml.save('best')
-        print("complete.")
+        if opts.local == 1:
+            print("load our best checkpoint...")
+            url = "https://docs.google.com/uc?export=download&id=12sVwiibqTZnEzRvuhSUV3ZWaK7RQNBIp"
+            wget.download(url,'./')
+            m = torch.load('./l3_m3_t85_mn_best.pth.tar')
+            model.load_state_dict(m)
+            nsml.save('best')
+            print("complete.")
+        else:
+            print("load our best checkpoint...")
+            nsml.load(checkpoint=opts.checkpoint, session=opts.session)
+            nsml.save('best')
+            print("complete.")
 
     return
 
