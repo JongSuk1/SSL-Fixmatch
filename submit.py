@@ -205,7 +205,7 @@ def _infer(model, root_path, test_loader=None):
                                    transforms.CenterCrop(opts.imsize),
                                    transforms.ToTensor(),
                                    transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
-                               ])), batch_size=32, shuffle=False, num_workers=4, pin_memory=True)
+                               ])), batch_size=16, shuffle=False, num_workers=4, pin_memory=True)
         print('loaded {} test images'.format(len(test_loader.dataset)))
 
     outputs = []
@@ -323,7 +323,7 @@ def main():
     # Set model
     #model = Res50(NUM_CLASSES)
     if IS_ON_NSML:
-        model = EfficientNet.from_pretrained('efficientnet-b0', num_classes=265).cuda()
+        model = EfficientNet.from_pretrained('efficientnet-b4', num_classes=265).cuda()
     else:
         model = EfficientNet.from_pretrained('efficientnet-b4', num_classes=265).cuda()
         model = torch.nn.DataParallel(model)    
@@ -333,7 +333,7 @@ def main():
     print('  + Number of params: {}'.format(n_parameters))
 
     if use_gpu:
-        model.cuda()
+        model = torch.nn.DataParallel(model)
 
     ### DO NOT MODIFY THIS BLOCK ###
     if IS_ON_NSML:
@@ -345,10 +345,15 @@ def main():
     
     if IS_ON_NSML:
         print("load our best checkpoint...")
-        nsml.load(checkpoint=opts.checkpoint, session=opts.session)
+        url = "https://docs.google.com/uc?export=download&id=12sVwiibqTZnEzRvuhSUV3ZWaK7RQNBIp"
+        wget.download(url,'./')
+        m = torch.load('./l3_m3_t85_mn_best.pth.tar')
+        #model = torch.nn.DataParallel(model)
+        model.load_state_dict(m)
+        #nsml.load(checkpoint=opts.checkpoint, session=opts.session)
         nsml.save('best')
         print("complete.")
-    
+
     return
 
 if __name__ == '__main__':

@@ -310,7 +310,7 @@ parser.add_argument('--T', default=0.5, type=float)
 parser.add_argument('--smooth', type = int, default=0, help='use smoothcrossentropy loss')
 
 parser.add_argument('--val-iteration', type=int, default=100, help='Number of labeled data')
-parser.add_argument('--parser', type=int, default=1)
+parser.add_argument('--parser', type=int, default=2)
 
 ### DO NOT MODIFY THIS BLOCK ###
 # arguments for nsml 
@@ -430,8 +430,8 @@ def main():
             batch_size=opts.batchsize*opts.mu, shuffle=True, num_workers=4, pin_memory=True, drop_last=True)
         print('unlabel_loader done')    
 
-        crtSampler = ClassAwareSampler(data_source=DATASET_PATH + '/train/', ids=val_ids)
-        if opts.parser != 3:
+        crtSampler_val = ClassAwareSampler(data_source=DATASET_PATH + '/train/', ids=val_ids)
+        if True:
             validation_loader = torch.utils.data.DataLoader(
                 SimpleImageLoader(DATASET_PATH, 'val', val_ids,
                                    transform=transforms.Compose([
@@ -467,7 +467,7 @@ def main():
         if opts.scheduler == 0:
             scheduler = get_cosine_schedule_with_warmup(optimizer,0,iter_num * opts.epochs)
         elif opts.scheduler == 1:
-            scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer,  milestones=[50, 150], gamma=0.1)
+            scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer,  milestones=[60, 120, 160], gamma=0.1)
         else:
             scheduler = None # not used
 
