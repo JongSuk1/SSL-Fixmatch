@@ -127,7 +127,6 @@ def interleave(xy, batch):
         xy[0][i], xy[i][i] = xy[i][i], xy[0][i]
     return [torch.cat(v, dim=0) for v in xy]
 
-
 def split_ids(path, ratio):
     with open(path) as f:
         ids_l = [[] for i in range(265)]
@@ -158,6 +157,30 @@ def split_ids(path, ratio):
     perm2 = np.random.permutation(np.arange(len(val_ids)))
     train_ids = train_ids[perm1]
     val_ids = val_ids[perm2]
+
+    return train_ids, val_ids, ids_u
+
+def split_ids_original(path, ratio):
+    with open(path) as f:
+        ids_l = []
+        ids_u = []
+        for i, line in enumerate(f.readlines()):
+            if i == 0 or line == '' or line == '\n':
+                continue
+            line = line.replace('\n', '').split('\t')
+            if int(line[1]) >= 0:
+                ids_l.append(int(line[0]))
+            else:
+                ids_u.append(int(line[0]))
+
+    ids_l = np.array(ids_l)
+    ids_u = np.array(ids_u)
+
+    perm = np.random.permutation(np.arange(len(ids_l)))
+    cut = int(ratio*len(ids_l))
+    train_ids = ids_l[perm][cut:]
+    val_ids = ids_l[perm][:cut]
+    ids_u = np.concatenate((ids_u, train_ids))
 
     return train_ids, val_ids, ids_u
 
@@ -287,6 +310,7 @@ parser.add_argument('--T', default=0.5, type=float)
 parser.add_argument('--smooth', type = int, default=0, help='use smoothcrossentropy loss')
 
 parser.add_argument('--val-iteration', type=int, default=100, help='Number of labeled data')
+parser.add_argument('--parser', type=int, default=1)
 
 ### DO NOT MODIFY THIS BLOCK ###
 # arguments for nsml 
@@ -353,19 +377,36 @@ def main():
     if opts.mode == 'train':
         model.train()
         # Set dataloader
-        train_ids, val_ids, unl_ids = split_ids(os.path.join(DATASET_PATH, 'train/train_label'), 0.1)
+        if opts.parser == 1:
+            train_ids, val_ids, unl_ids = split_ids_original(os.path.join(DATASET_PATH, 'train/train_label'), 0.1)
+        if opts.parser >= 2:
+            train_ids, val_ids, unl_ids = split_ids(os.path.join(DATASET_PATH, 'train/train_label'), 0.1)
         print('found {} train, {} validation and {} unlabeled images'.format(len(train_ids), len(val_ids), len(unl_ids)))
         
-        train_loader = torch.utils.data.DataLoader(
-            SimpleImageLoader(DATASET_PATH, 'train', train_ids,
-                              transform=transforms.Compose([
-                                  transforms.Resize(opts.imResize),
-                                  transforms.RandomResizedCrop(opts.imsize),
-                                  transforms.RandomHorizontalFlip(),
-                                  transforms.RandomVerticalFlip(),
-                                  transforms.ToTensor(),
-                                  transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),])),
-                                batch_size=opts.batchsize, shuffle=True, num_workers=4, pin_memory=True, drop_last=True)
+        crtSampler = ClassAwareSampler(data_source=DATASET_PATH + '/train/', ids=train_ids)
+        if opts.parser != 3:
+            train_loader = torch.utils.data.DataLoader(
+                SimpleImageLoader(DATASET_PATH, 'train', train_ids,
+                                  transform=transforms.Compose([
+                                      transforms.Resize(opts.imResize),
+                                      transforms.RandomResizedCrop(opts.imsize),
+                                      transforms.RandomHorizontalFlip(),
+                                      transforms.RandomVerticalFlip(),
+                                      transforms.ToTensor(),
+                                      transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),])),
+                                    batch_size=opts.batchsize, shuffle=True, num_workers=4, pin_memory=True, drop_last=True)
+        else:
+            train_loader = torch.utils.data.DataLoader(
+                SimpleImageLoader(DATASET_PATH, 'train', train_ids,
+                                  transform=transforms.Compose([
+                                      transforms.Resize(opts.imResize),
+                                      transforms.RandomResizedCrop(opts.imsize),
+                                      transforms.RandomHorizontalFlip(),
+                                      transforms.RandomVerticalFlip(),
+                                      transforms.ToTensor(),
+                                      transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),])),
+                                    batch_size=opts.batchsize, sampler=crtSampler, num_workers=4, pin_memory=True, drop_last=True)
+
 
         print('train_loader done')
 
@@ -389,15 +430,27 @@ def main():
             batch_size=opts.batchsize*opts.mu, shuffle=True, num_workers=4, pin_memory=True, drop_last=True)
         print('unlabel_loader done')    
 
-        validation_loader = torch.utils.data.DataLoader(
-            SimpleImageLoader(DATASET_PATH, 'val', val_ids,
-                               transform=transforms.Compose([
-                                   transforms.Resize(opts.imResize),
-                                   transforms.CenterCrop(opts.imsize),
-                                   transforms.ToTensor(),
-                                   transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),])),
-                               batch_size=opts.batchsize, num_workers=4, pin_memory=True, drop_last=False,
-                               shuffle=True)
+        crtSampler = ClassAwareSampler(data_source=DATASET_PATH + '/train/', ids=val_ids)
+        if opts.parser != 3:
+            validation_loader = torch.utils.data.DataLoader(
+                SimpleImageLoader(DATASET_PATH, 'val', val_ids,
+                                   transform=transforms.Compose([
+                                       transforms.Resize(opts.imResize),
+                                       transforms.CenterCrop(opts.imsize),
+                                       transforms.ToTensor(),
+                                       transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),])),
+                                   batch_size=opts.batchsize, num_workers=4, pin_memory=True, drop_last=False,
+                                   shuffle=True)
+        else:
+            validation_loader = torch.utils.data.DataLoader(
+                SimpleImageLoader(DATASET_PATH, 'val', val_ids,
+                                   transform=transforms.Compose([
+                                       transforms.Resize(opts.imResize),
+                                       transforms.CenterCrop(opts.imsize),
+                                       transforms.ToTensor(),
+                                       transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),])),
+                                   batch_size=opts.batchsize, num_workers=4, pin_memory=True, drop_last=False,
+                                   sampler=crtSampler_val)
         print('validation_loader done')
 
         # Set optimizer
