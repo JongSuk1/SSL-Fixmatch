@@ -228,7 +228,7 @@ def _infer(model, root_path, test_loader=None):
                                    transforms.CenterCrop(opts.imsize),
                                    transforms.ToTensor(),
                                    transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
-                               ])), batch_size=opts.batchsize, shuffle=False, num_workers=4, pin_memory=True)
+                               ])), batch_size=opts.batchsize*(opts.mu + 1), shuffle=False, num_workers=4, pin_memory=True)
         print('loaded {} test images'.format(len(test_loader.dataset)))
 
     outputs = []
@@ -439,7 +439,7 @@ def main():
                                        transforms.CenterCrop(opts.imsize),
                                        transforms.ToTensor(),
                                        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),])),
-                                   batch_size=opts.batchsize, num_workers=4, pin_memory=True, drop_last=False,
+                                   batch_size=opts.batchsize*(opts.mu + 1), num_workers=4, pin_memory=True, drop_last=False,
                                    shuffle=True)
         else:
             validation_loader = torch.utils.data.DataLoader(
@@ -456,7 +456,7 @@ def main():
         # Set optimizer
         #optimizer = optim.Adam(model.parameters(), lr=opts.lr)
         optimizer = optim.SGD(model.parameters(), lr=opts.lr,  momentum=opts.momentum, nesterov=True, weight_decay=0.0001)
-        fc_optimizer = optim.SGD(model.parameters(), lr=0.1,  momentum=opts.momentum, nesterov=True, weight_decay=0.0001)
+        fc_optimizer = optim.SGD(model.parameters(), lr=opts.lr,  momentum=opts.momentum, nesterov=True, weight_decay=0.0001)
 
 
         # INSTANTIATE LOSS CLASS
@@ -587,14 +587,19 @@ def train(opts, train_loader, unlabel_loader, model, criterion, optimizer, epoch
             inputs_u1, inputs_u2 = inputs_u1.cuda(), inputs_u2.cuda()    
         inputs_x, targets_x = Variable(inputs_x), Variable(targets_x)
         inputs_u1, inputs_u2 = Variable(inputs_u1), Variable(inputs_u2)
-        
+
+        l_size = inputs_x.size(0)
+        u_size = inputs_u1.size(0)
+
+        inputs_total = torch.cat([inputs_x, inputs_u1, inputs_u2])
+        pred_total = model(inputs_total)
+
         with torch.no_grad():
             # compute guessed labels of unlabel samples
-            pred_u1 = model(inputs_u1)
-            pseudo_label = torch.softmax(pred_u1.detach_(), dim=-1)
+            pred_u1 = pred_total[l_size:l_size+u_size]
+            pseudo_label = torch.softmax(pred_u1.detach(), dim=-1)
             max_probs, targets_u = torch.max(pseudo_label, dim=-1)
             mask = max_probs.ge(opts.threshold).float()
-
             
         optimizer.zero_grad()
         if opts.smooth == 0:
@@ -604,11 +609,8 @@ def train(opts, train_loader, unlabel_loader, model, criterion, optimizer, epoch
             x_criterion = SmoothCrossEntropyLoss(smoothing=0.1).cuda()
             u_criterion = SmoothCrossEntropyLoss(reduction='none', smoothing=0.1).cuda()
 
-        x_pred = model(inputs_x)
-        Lx = x_criterion(x_pred, targets_x)
-        
-        u_pred = model(inputs_u2)
-        Lu = (u_criterion(u_pred, targets_u) * mask).mean()
+        Lx = x_criterion(pred_total[:l_size], targets_x)
+        Lu = (u_criterion(pred_total[l_size+u_size:], targets_u) * mask).mean()
 
         loss = Lx + opts.lambda_u * Lu
         

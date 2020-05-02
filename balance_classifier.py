@@ -14,9 +14,13 @@ import random
 import time
 import math
 from collections import OrderedDict
+import wget
+from efficientnet_pytorch import EfficientNet
+
 
 import torch
 import torch.nn as nn
+from torch.nn import init
 import torch.optim as optim
 from torch.optim.lr_scheduler import LambdaLR
 from torch.autograd import Variable
@@ -27,9 +31,7 @@ import torchvision
 from torchvision import datasets, models, transforms
 #from tensorboardX import SummaryWriter
 
-import torch.nn.functional as F
-
-from ImageDataLoader import SimpleImageLoader
+from ImageDataLoader import SimpleImageLoader, FixMatchImageLoader
 from models import Res18, Res50, Dense121, Res18_basic, weights_init_classifier
 from randaugment import RandAugmentMC
 
@@ -147,27 +149,46 @@ def interleave(xy, batch):
 
 def split_ids(path, ratio):
     with open(path) as f:
-        ids_l = []
+        ids_l = [[] for i in range(265)]
         ids_u = []
         for i, line in enumerate(f.readlines()):
             if i == 0 or line == '' or line == '\n':
                 continue
             line = line.replace('\n', '').split('\t')
             if int(line[1]) >= 0:
-                ids_l.append(int(line[0]))
+                ids_l[int(line[1])].append(int(line[0]))
             else:
                 ids_u.append(int(line[0]))
+    
+    train_ids = []
+    val_ids = []
 
-    ids_l = np.array(ids_l)
+    for labels in ids_l:
+        cut = int(ratio*len(labels))
+        train_ids += labels[cut:]
+        val_ids += labels[:cut]
+    
+    ids_u += train_ids
     ids_u = np.array(ids_u)
+    train_ids = np.array(train_ids)
+    val_ids = np.array(val_ids)
 
-    perm = np.random.permutation(np.arange(len(ids_l)))
-    cut = int(ratio*len(ids_l))
-    train_ids = ids_l[perm][cut:]
-    val_ids = ids_l[perm][:cut]
+    perm1 = np.random.permutation(np.arange(len(train_ids)))
+    perm2 = np.random.permutation(np.arange(len(val_ids)))
+    train_ids = train_ids[perm1]
+    val_ids = val_ids[perm2]
 
     return train_ids, val_ids, ids_u
 
+def weights_init_normal(m):
+    classname = m.__class__.__name__
+    if classname.find('Conv') != -1:
+        init.normal_(m.weight.data, 0.0, 0.02)
+    elif classname.find('Linear') != -1:
+        init.normal_(m.weight.data, 0.0, 0.02)
+    elif classname.find('BatchNorm') != -1:
+        init.normal_(m.weight.data, 1.0, 0.02)
+        init.constant_(m.bias.data, 0.0)
 
 ### NSML functions
 def _infer(model, root_path, test_loader=None):
@@ -187,7 +208,7 @@ def _infer(model, root_path, test_loader=None):
     for idx, image in enumerate(test_loader):
         if torch.cuda.is_available():
             image = image.cuda()
-        _, probs = model(image)
+        probs = model(image)
         output = torch.argmax(probs, dim=1)
         output = output.detach().cpu().numpy()
         outputs.append(output)
@@ -222,7 +243,7 @@ parser.add_argument('--epochs', type=int, default=10, metavar='N', help='number 
 # basic settings
 parser.add_argument('--name',default='tuning_w_cosine', type=str, help='output model name')
 parser.add_argument('--gpu_ids',default='0', type=str,help='gpu_ids: e.g. 0  0,1,2  0,2')
-parser.add_argument('--batchsize', default=265, type=int, help='batchsize')
+parser.add_argument('--batchsize', default=64, type=int, help='batchsize')
 parser.add_argument('--seed', type=int, default=123, help='random seed')
 
 # basic hyper-parameters
@@ -233,13 +254,13 @@ parser.add_argument('--imsize', default=224, type=int, help='')
 parser.add_argument('--lossXent', type=float, default=1, help='lossWeight for Xent')
 
 # arguments for logging and backup
-parser.add_argument('--log_interval', type=int, default=10, metavar='N', help='logging training status')
-parser.add_argument('--save_epoch', type=int, default=2, help='saving epoch interval')
+parser.add_argument('--log_interval', type=int, default=1, metavar='N', help='logging training status')
+parser.add_argument('--save_epoch', type=int, default=1, help='saving epoch interval')
 
 # hyper-parameters for fixmatch
-parser.add_argument('--lambda-u', default=1, type=float)
-parser.add_argument('--mu', default=1 , type=int, help="Batch ratio between labeled/unlabeled")
-parser.add_argument('--threshold', type=float, default=0.95, help='Threshold setting for Fixmatch')
+parser.add_argument('--lambda-u', default=3, type=float)
+parser.add_argument('--mu', default=3 , type=int, help="Batch ratio between labeled/unlabeled")
+parser.add_argument('--threshold', type=float, default=0.85, help='Threshold setting for Fixmatch')
 
 
 parser.add_argument('--T', default=0.5, type=float)
@@ -275,11 +296,16 @@ def main():
     else:
         print("Currently using CPU (GPU is highly recommended)")
 
+    model = EfficientNet.from_pretrained('efficientnet-b4', num_classes=265).cuda()
+    model = torch.nn.DataParallel(model).cuda()
 
-    # Set model
-    model = Res50(NUM_CLASSES)
-    if not IS_ON_NSML:
-        model = torch.nn.DataParallel(model)    
+    if IS_ON_NSML:
+        print("load our best checkpoint...")
+        url = "https://docs.google.com/uc?export=download&id=12sVwiibqTZnEzRvuhSUV3ZWaK7RQNBIp"
+        wget.download(url,'./')
+        m = torch.load('./l3_m3_t85_mn_best.pth.tar')
+        model.load_state_dict(m)
+        print("complete.")
 
     parameters = filter(lambda p: p.requires_grad, model.parameters())
     n_parameters = sum([p.data.nelement() for p in model.parameters()])
@@ -288,37 +314,17 @@ def main():
     if use_gpu:
         model.cuda()
 
-
     ### DO NOT MODIFY THIS BLOCK ###
     if IS_ON_NSML:
         bind_nsml(model)
         if opts.pause:
             nsml.paused(scope=locals())
-    ################################
-
-
-    ### Load the model
-    if IS_ON_NSML:
-        m = torch.load('./MoCo_Checkpoint/checkpoint_0200.pth.tar')
-        model.load_state_dict(m)
-        model.classifier.apply(weights_init_classifier)
-    else:
-        checkpoint = torch.load("./MoCo_Checkpoint/checkpoint_0200.pth.tar")
-        #model.load_state_dict(checkpoint['state_dict'])
-        state_dict = OrderedDict()
-        for key, value in checkpoint['state_dict'].items():
-            if ('encoder_q' in key and 'num_batches_tracked' not in key and 'fc' not in key):
-                print(key)
-                state_dict['model'+key[16:]] = value
-        torch.save(state_dict, "moco_ours.pt")
-        model.load_state_dict(state_dict, strict=False)
-        model.module.classifier.apply(weights_init_classifier)
-    
+    ################################   
     
     if opts.mode == 'train':
         model.train()
         # Set dataloader
-        train_ids, val_ids, unl_ids = split_ids(os.path.join(DATASET_PATH, 'train/train_label'), 0.05)
+        train_ids, val_ids, unl_ids = split_ids(os.path.join(DATASET_PATH, 'train/train_label'), 0.1)
         print('found {} train, {} validation and {} unlabeled images'.format(len(train_ids), len(val_ids), len(unl_ids)))
         
         #Sampler
@@ -338,6 +344,26 @@ def main():
                                 sampler=crtSampler)
         print('train_loader done')
 
+        unlabel_loader = torch.utils.data.DataLoader(
+            FixMatchImageLoader(DATASET_PATH, 'unlabel', unl_ids,
+                              transform=transforms.Compose([
+                                  transforms.Resize(opts.imResize),
+                                  transforms.RandomResizedCrop(opts.imsize),
+                                  transforms.RandomHorizontalFlip(),
+                                  transforms.RandomVerticalFlip(),
+                                  transforms.ToTensor(),
+                                  transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),]),
+                              strong_transform=transforms.Compose([
+                                  transforms.Resize(opts.imResize),
+                                  transforms.RandomResizedCrop(opts.imsize),
+                                  transforms.RandomHorizontalFlip(),
+                                  transforms.RandomVerticalFlip(),
+                                  RandAugmentMC(n=2, m=10),
+                                  transforms.ToTensor(),
+                                  transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),])), 
+            batch_size=opts.batchsize*opts.mu, shuffle=True, num_workers=4, pin_memory=True, drop_last=True)
+        print('unlabel_loader done')   
+
         validation_loader = torch.utils.data.DataLoader(
             SimpleImageLoader(DATASET_PATH, 'val', val_ids,
                                transform=transforms.Compose([
@@ -345,22 +371,23 @@ def main():
                                    transforms.CenterCrop(opts.imsize),
                                    transforms.ToTensor(),
                                    transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),])),
-                               batch_size=opts.batchsize, sampler=crtSampler_val, num_workers=4, pin_memory=True, drop_last=False)
+                               batch_size=opts.batchsize, shuffle=True, num_workers=4, pin_memory=True, drop_last=False)
         print('validation_loader done')
 
         # Set optimizer
         #optimizer = optim.Adam(model.parameters(), lr=opts.lr)
-        iter_num = 16078 // opts.batchsize 
+        iter_num = len(train_ids) // opts.batchsize 
 
         optimizer = optim.SGD(model.parameters(), lr=opts.lr,  momentum=opts.momentum, nesterov=True, weight_decay=0.0001)
         scheduler = get_cosine_schedule_with_warmup(optimizer,0,iter_num * opts.epochs)        
         criterion = nn.CrossEntropyLoss().cuda()
         best_acc = 0.0
-        
+
+        model.module._fc.apply(weights_init_normal)
         for epoch in range(opts.start_epoch, opts.epochs + 1):
             print('start training')
             #adjust_learning_rate(opts, optimizer, epoch)
-            loss, train_top1, train_top5 = train(opts, train_loader, model, criterion, optimizer, epoch, use_gpu, scheduler)
+            loss, train_top1, train_top5 = train(opts, train_loader, unlabel_loader, model, criterion, optimizer, epoch, use_gpu, scheduler)
             acc_top1, acc_top5 = validation(opts, validation_loader, model, epoch, use_gpu)
             
             is_best = acc_top1 > best_acc
@@ -378,72 +405,117 @@ def main():
                     torch.save(model.state_dict(), os.path.join('runs', opts.name + '_e{}.pth.tar'.format(epoch)))
                 
 
-def train(opts, train_loader, model, criterion, optimizer, epoch, use_gpu, scheduler):
-    batch_time = AverageMeter()
-    data_time = AverageMeter()
+def train(opts, train_loader, unlabel_loader, model, criterion, optimizer, epoch, use_gpu, scheduler):
+    
     losses = AverageMeter()
-    top1 = AverageMeter()
-    top5 = AverageMeter()
-
-    # switch to train mode
+    losses_x = AverageMeter()
+    losses_un = AverageMeter()
+    weight_scale = AverageMeter()
+    acc_top1 = AverageMeter()
+    acc_top5 = AverageMeter()
+    avg_loss = 0.0
+    avg_top1 = 0.0
+    avg_top5 = 0.0
+    
     model.train()
-
     for param in model.parameters():
         param.requires_grad = False
-    # Except for fc
-    if IS_ON_NSML:
-        for param in model.classifier.parameters():
-            param.requires_grad = True
-    else:
-        for param in model.module.classifier.parameters():
-            param.requires_grad = True
+    model.module._fc.weight.requires_grad = True
+    model.module._fc.bias.requires_grad = True
+    
+    nCnt =0
+    steps = (epoch - 1) * opts.val_iteration 
+    labeled_train_iter = iter(train_loader)
+    unlabeled_train_iter = iter(unlabel_loader)
+    
+    for batch_idx in range(len(train_loader)):
+        try:
+            data = labeled_train_iter.next()
+            inputs_x, targets_x = data
+        except:
+            labeled_train_iter = iter(train_loader)       
+            data = labeled_train_iter.next()
+            inputs_x, targets_x = data
+        try:
+            data = unlabeled_train_iter.next()
+            inputs_u1, inputs_u2 = data
+        except:
+            unlabeled_train_iter = iter(unlabel_loader)       
+            data = unlabeled_train_iter.next()
+            inputs_u1, inputs_u2 = data         
+    
+        batch_size = inputs_x.size(0)
+        # Transform label to one-hot
+        if use_gpu :
+            inputs_x, targets_x = inputs_x.cuda(), targets_x.cuda()
+            inputs_u1, inputs_u2 = inputs_u1.cuda(), inputs_u2.cuda()    
+        inputs_x, targets_x = Variable(inputs_x), Variable(targets_x)
+        inputs_u1, inputs_u2 = Variable(inputs_u1), Variable(inputs_u2)
         
-    end = time.time()
-    for i, (input, target) in enumerate(train_loader):
-        # measure data loading time
-        data_time.update(time.time() - end)
+        with torch.no_grad():
+            # compute guessed labels of unlabel samples
+            pred_u1 = model(inputs_u1)
+            pseudo_label = torch.softmax(pred_u1.detach_(), dim=-1)
+            max_probs, targets_u = torch.max(pseudo_label, dim=-1)
+            mask = max_probs.ge(opts.threshold).float()
 
-        input = input.cuda()
-        target = target.cuda()
-
-        # compute output
-        input_var = torch.autograd.Variable(input, requires_grad=True)
-        target_var = torch.autograd.Variable(target)
-        _, output = model(input_var)
-        loss = criterion(output, target_var)
-
-        # measure accuracy and record loss
-        err1, err5 = accuracy(output.data, target, topk=(1, 5))
-
-        losses.update(loss.item(), input.size(0))
-        top1.update(err1.item(), input.size(0))
-        top5.update(err5.item(), input.size(0))
-
-        # compute gradient and do SGD step
+            
         optimizer.zero_grad()
+        x_criterion = nn.CrossEntropyLoss().cuda()
+        u_criterion = nn.CrossEntropyLoss(reduction='none').cuda()        
+
+        x_pred = model(inputs_x)
+        Lx = x_criterion(x_pred, targets_x)
+        
+        u_pred = model(inputs_u2)
+        Lu = (u_criterion(u_pred, targets_u) * mask).mean()
+
+        loss = Lx + opts.lambda_u * Lu
+        
+        # compute gradient and do SGD step
         loss.backward()
         optimizer.step()
         scheduler.step()
+        
+        losses.update(loss.item(), inputs_x.size(0))
+        losses_x.update(Lx.item(), inputs_x.size(0))
+        losses_un.update(Lu.item(), inputs_x.size(0))
+        
+        with torch.no_grad():
+            # compute guessed labels of unlabel samples
+            pred_x1 = model(inputs_x)
 
-        # measure elapsed time
-        batch_time.update(time.time() - end)
-        end = time.time()
+        acc_top1b = top_n_accuracy_score(targets_x.data.cpu().numpy(), pred_x1.data.cpu().numpy(), n=1)*100
+        acc_top5b = top_n_accuracy_score(targets_x.data.cpu().numpy(), pred_x1.data.cpu().numpy(), n=5)*100    
+        acc_top1.update(torch.as_tensor(acc_top1b), inputs_x.size(0))        
+        acc_top5.update(torch.as_tensor(acc_top5b), inputs_x.size(0))   
+        
+        avg_loss += loss.item()
+        avg_top1 += acc_top1b
+        avg_top5 += acc_top5b  
+        
+        if batch_idx % opts.log_interval == 0:
+            print('Train Epoch:{} [{}/{}] Loss:{:.4f}({:.4f}) Top-1:{:.2f}%({:.2f}%) Top-5:{:.2f}%({:.2f}%) '.format( 
+                epoch, batch_idx *inputs_x.size(0), len(train_loader.dataset), losses.val, losses.avg, acc_top1.val, acc_top1.avg, acc_top5.val, acc_top5.avg))            
+        '''
+        if IS_ON_NSML:
+            nsml.report(summary={
+                'train__loss': loss.item(),
+                'train__lossx': Lx.item(),
+                'train__lossunlabel': Lu.item(),
+                'train__acctop1': acc_top1b,
+                'train__acctop5': acc_top5b},
+                step=steps)             
+         '''
+        steps += 1
+        nCnt += 1 
+        
+    avg_loss =  float(avg_loss/nCnt)
+    avg_top1 = float(avg_top1/nCnt)
+    avg_top5 = float(avg_top5/nCnt)
+    
+    return  avg_loss, avg_top1, avg_top5    
 
-        if i % 10 == 0:
-            print('Epoch: [{0}/{1}][{2}/{3}]\t'
-                  'LR: {LR:.6f}\t'
-                  'Time {batch_time.val:.3f} ({batch_time.avg:.3f})\t'
-                  'Data {data_time.val:.3f} ({data_time.avg:.3f})\t'
-                  'Loss {loss.val:.4f} ({loss.avg:.4f})\t'
-                  'Top 1-err {top1.val:.4f} ({top1.avg:.4f})\t'
-                  'Top 5-err {top5.val:.4f} ({top5.avg:.4f})'.format(
-                epoch, opts.epochs, i, len(train_loader), LR=opts.lr, batch_time=batch_time,
-                data_time=data_time, loss=losses, top1=top1, top5=top5))
-
-    print('* Epoch: [{0}/{1}]\t Top 1-acc {top1.avg:.3f}  Top 5-acc {top5.avg:.3f}\t Train Loss {loss.avg:.3f}'.format(
-        epoch, opts.epochs, top1=top1, top5=top5, loss=losses))
-
-    return losses.avg, top1.avg, top5.avg
 
 def validation(opts, validation_loader, model, epoch, use_gpu):
     model.eval()
@@ -460,7 +532,7 @@ def validation(opts, validation_loader, model, epoch, use_gpu):
             inputs = Variable(inputs)
             steps+=1
             nCnt +=1
-            embed_fea, preds = model(inputs)
+            preds = model(inputs)
 
             acc_top1 = top_n_accuracy_score(labels.numpy(), preds.data.cpu().numpy(), n=1)*100
             acc_top5 = top_n_accuracy_score(labels.numpy(), preds.data.cpu().numpy(), n=5)*100

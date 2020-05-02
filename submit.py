@@ -197,6 +197,7 @@ class SmoothCrossEntropyLoss(_WeightedLoss):
         return loss
 ### NSML functions
 def _infer(model, root_path, test_loader=None):
+    model.eval()
     if test_loader is None:
         test_loader = torch.utils.data.DataLoader(
             SimpleImageLoader(root_path, 'test',
@@ -205,7 +206,7 @@ def _infer(model, root_path, test_loader=None):
                                    transforms.CenterCrop(opts.imsize),
                                    transforms.ToTensor(),
                                    transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
-                               ])), batch_size=16, shuffle=False, num_workers=4, pin_memory=True)
+                               ])), batch_size=50, shuffle=False, num_workers=4, pin_memory=True)
         print('loaded {} test images'.format(len(test_loader.dataset)))
 
     outputs = []
