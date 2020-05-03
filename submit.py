@@ -345,9 +345,9 @@ def main():
     if IS_ON_NSML:
         if opts.local == 1:
             print("load our best checkpoint...")
-            url = "https://docs.google.com/uc?export=download&id=12sVwiibqTZnEzRvuhSUV3ZWaK7RQNBIp"
+            url = "https://docs.google.com/uc?export=download&id=1uACPp822W6XiJ-3HYvsBd5miN3XpSBID"
             wget.download(url,'./')
-            m = torch.load('./l3_m3_t85_mn_best.pth.tar')
+            m = torch.load('./l3_m3_t85_mn_e299.pth.tar')
             model.load_state_dict(m)
             nsml.save('best')
             print("complete.")

@@ -24,6 +24,7 @@ from torch.nn.modules.loss import _WeightedLoss
 
 import torchvision
 from torchvision import datasets, models, transforms
+from sync_batchnorm import convert_model
 #from tensorboardX import SummaryWriter
 #import seaborn as sns
 #import matplotlib.pyplot as plt
@@ -348,7 +349,8 @@ def main():
         model = EfficientNet.from_pretrained('efficientnet-b0', num_classes=265).cuda()
     else:
         model = EfficientNet.from_pretrained('efficientnet-b4', num_classes=265).cuda()
-        model = torch.nn.DataParallel(model)    
+        model = torch.nn.DataParallel(model)  
+        model = convert_model(model)  
 
     parameters = filter(lambda p: p.requires_grad, model.parameters())
     n_parameters = sum([p.data.nelement() for p in model.parameters()])
