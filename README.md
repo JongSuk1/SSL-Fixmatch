@@ -30,7 +30,7 @@ You can use this method by changing the **parser** option.
 ```bash
 > python train_fixmatch.py --gpu_ids 0,1,2,3,4,5,6,7 --batchsize 32 --lambda-u 3 --mu 3 --threshold 0.85 --lr 0.03 --parser 3 --name overfixmatch
 
-> nsml run -d fashion_eval -e train_fixmatch.py -a "--gpu_ids 0,1,2,3,4,5,6,7 --batchsize 32 --lambda-u 3 --mu 3 --threshold 0.85 --lr 0.03 --parser 3 --name overfixmatch"
+> nsml run -d fashion_eval -e train_fixmatch.py -a "--batchsize 32 --lambda-u 3 --mu 3 --threshold 0.85 --lr 0.03 --parser 3 --name overfixmatch"
 ```
 
 ### FixMatch-cRT (Classifier re-training)
