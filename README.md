@@ -1,8 +1,7 @@
 # Rethinking Semi Supervised Learning in Long Tailed Distribution: What Can We do?
-This project is a vision part project conducted in KAIST Computer Science CS492 (H): Special Topics in CS < Deep Learning for Real-World Problems > 
+This project is a vision part project conducted in KAIST Computer Science CS492 (H): Special Topics in Computer Science: <Deep Learning for Real-World Problems> 
 
-We use KAIST-NAVER product class 265 dataset from Naver Shopping website.
-
+We used KAIST-NAVER 265 classes dataset collected from NAVER Shopping website and want to say thank you to \[NSML]{https://ai.nsml.navercorp.com/} for providing GPU resourses.
 
 ## Semi-supervised learning with imbalance resolving method
 You can train model on both on local and NSML.
@@ -29,9 +28,9 @@ You can use this method by changing the **smooth** option.
 ### OverFixMatch (Oversampling)
 You can use this method by changing the **parser** option.
 ```bash
-> python train_fixmatch.py --gpu_ids 0,1,2,3,4,5,6,7 --batchsize 64 --lambda-u 3 --mu 3 --threshold 0.85 --lr 0.03 --parser 3 --name overfixmatch
+> python train_fixmatch.py --gpu_ids 0,1,2,3,4,5,6,7 --batchsize 32 --lambda-u 3 --mu 3 --threshold 0.85 --lr 0.03 --parser 3 --name overfixmatch
 
-> nsml run -d fashion_eval -e train_fixmatch.py -a "--gpu_ids 0,1,2,3,4,5,6,7 --batchsize 64 --lambda-u 3 --mu 3 --threshold 0.85 --lr 0.03 --parser 3 --name overfixmatch"
+> nsml run -d fashion_eval -e train_fixmatch.py -a "--gpu_ids 0,1,2,3,4,5,6,7 --batchsize 32 --lambda-u 3 --mu 3 --threshold 0.85 --lr 0.03 --parser 3 --name overfixmatch"
 ```
 
 ### FixMatch-cRT (Classifier re-training)
