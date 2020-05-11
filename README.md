@@ -1,5 +1,5 @@
 # Rethinking Semi Supervised Learning in Long Tailed Distribution: What Can We do?
-This project is a vision part project conducted in KAIST Computer Science CS492 (H): Special Topics in Computer Science: <Deep Learning for Real-World Problems> 
+This project is a vision task project conducted in KAIST Computer Science CS492 (H): Special Topics in Computer Science: <Deep Learning for Real-World Problems> with NAVER.
 
 We used KAIST-NAVER 265 classes dataset collected from NAVER Shopping website and want to say thank you to [NSML](https://ai.nsml.navercorp.com/) for providing GPU resourses.
 
