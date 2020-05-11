@@ -42,6 +42,7 @@ The script below reinitialize and train **the only linear classifier** with bala
 > nsml run -d fashion_eval -e balance_classifier.py -a "--batchsize 32 --lambda-u 3 --mu 3 --threshold 0.85 --lr 0.03 --pretrained ./runs/{FILENAME} --name fixmatch_crt"
 ```
 
+We also provide some of the best checkpoints (which is EfficientNet-b4).
 |  <center>Method</center> |  <center>Top 1 Acc.(Val)</center> |  <center>Top 1 Acc.(Test)</center> | <center>model</center> |
 |:--------|:--------:|--------:|:--------:|
 |FixMatch | <center> **77.99** </center> |<center> **90.74** </center>|<a href="https://drive.google.com/open?id=1W69Xb077zoGirovWc8ls750hRpP6krg-">download</a></td>|
