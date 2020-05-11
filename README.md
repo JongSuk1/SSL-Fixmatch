@@ -1,5 +1,6 @@
-## Rethinking Semi Supervised Learning in Long Tailed Distribution: What Can We do?
-### This project is a vision part project conducted in KAIST Computer Science CS492 (H): Special Topics in CS < Deep Learning for Real-World Problems > 
+# Rethinking Semi Supervised Learning in Long Tailed Distribution: What Can We do?
+This project is a vision part project conducted in KAIST Computer Science CS492 (H): Special Topics in CS < Deep Learning for Real-World Problems > 
+
 We use KAIST-NAVER product class 265 dataset from Naver Shopping website.
 
 
