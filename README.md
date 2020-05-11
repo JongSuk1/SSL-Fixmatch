@@ -5,8 +5,8 @@ We used KAIST-NAVER 265 classes dataset collected from NAVER Shopping website an
 
 ## Semi-supervised learning with imbalance resolving method
 You can train model on both on local and NSML.
-Because of the limited provide resource of NSML, I recommend you to train on EfficientNet-b0.
-Regarding local training with EfficientNet-b4, we strongly recommend multi-GPU training. we used 8 GTX 2080ti GPUs.
+Because of the limited provide resource of NSML, I recommend you to train on EfficientNet-b0 with NSML.
+Regarding local training with EfficientNet-b4, we strongly recommend multi-GPU training. we used 8 GTX 2080 ti GPUs.
 
 You can train the model with the code below:
 
