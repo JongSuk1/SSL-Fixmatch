@@ -46,8 +46,8 @@ The script below reinitialize and train **the only linear classifier** with bala
 |:--------|:--------:|--------:|:--------:|
 |Vanila | <center> **77.99** </center> |**90.74** |<a href="https://drive.google.com/open?id=1W69Xb077zoGirovWc8ls750hRpP6krg-">download</a></td>|
 |Smoothed-FixMatch | <center>73.51 </center> |- ||
-|OverFixMatch | <center>76.32 </center> |86.77 ||
-|FixMatch-cRT | <center>- </center> |89.68|<a href="https://drive.google.com/open?id=1kwuw_PlhDEcr3YQAPf4NDattHIW9VyMG">download</a></td>|
+|OverFixMatch | <center>76.32 </center> |<center>86.77</center> ||
+|FixMatch-cRT | <center>- </center> |<center>89.68</center>|<a href="https://drive.google.com/open?id=1kwuw_PlhDEcr3YQAPf4NDattHIW9VyMG">download</a></td>|
 
 ## Inference
 ### Submit local model
