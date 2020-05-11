@@ -238,12 +238,12 @@ def bind_nsml(model):
 ######################################################################
 parser = argparse.ArgumentParser(description='Sample Product200K Training')
 parser.add_argument('--start_epoch', type=int, default=1, metavar='N', help='number of start epoch (default: 1)')
-parser.add_argument('--epochs', type=int, default=10, metavar='N', help='number of epochs to train (default: 200)')
+parser.add_argument('--epochs', type=int, default=20, metavar='N', help='number of epochs to train (default: 200)')
 
 # basic settings
 parser.add_argument('--name',default='tuning_w_cosine', type=str, help='output model name')
 parser.add_argument('--gpu_ids',default='0', type=str,help='gpu_ids: e.g. 0  0,1,2  0,2')
-parser.add_argument('--batchsize', default=64, type=int, help='batchsize')
+parser.add_argument('--batchsize', default=32, type=int, help='batchsize')
 parser.add_argument('--seed', type=int, default=123, help='random seed')
 
 # basic hyper-parameters
@@ -270,7 +270,7 @@ parser.add_argument('--val-iteration', type=int, default=100, help='Number of la
 # arguments for nsml 
 parser.add_argument('--pause', type=int, default=0)
 parser.add_argument('--mode', type=str, default='train')
-parser.add_argument('--pretrained', type=str, default="")
+parser.add_argument('--pretrained', default='./runs/l3_m3_t85_mn_e299.pth.tar', type=str, default="")
 ################################
 
 def main():
@@ -303,10 +303,13 @@ def main():
         print("load our best checkpoint...")
         url = "https://docs.google.com/uc?export=download&id=12sVwiibqTZnEzRvuhSUV3ZWaK7RQNBIp"
         wget.download(url,'./')
-        m = torch.load('./l3_m3_t85_mn_best.pth.tar')
+        m = torch.load('./l3_m3_t85_mb32_best.pth.tar')
         model.load_state_dict(m)
         print("complete.")
-
+    else:
+        m = torch.load(opts.pretrained)
+        model.load_state_dict(m)
+    
     parameters = filter(lambda p: p.requires_grad, model.parameters())
     n_parameters = sum([p.data.nelement() for p in model.parameters()])
     print('  + Number of params: {}'.format(n_parameters))
@@ -324,7 +327,7 @@ def main():
     if opts.mode == 'train':
         model.train()
         # Set dataloader
-        train_ids, val_ids, unl_ids = split_ids(os.path.join(DATASET_PATH, 'train/train_label'), 0.1)
+        train_ids, val_ids, unl_ids = split_ids(os.path.join(DATASET_PATH, 'train/train_label'), 0.01)
         print('found {} train, {} validation and {} unlabeled images'.format(len(train_ids), len(val_ids), len(unl_ids)))
         
         #Sampler
@@ -452,10 +455,16 @@ def train(opts, train_loader, unlabel_loader, model, criterion, optimizer, epoch
         inputs_x, targets_x = Variable(inputs_x), Variable(targets_x)
         inputs_u1, inputs_u2 = Variable(inputs_u1), Variable(inputs_u2)
         
+        l_size = inputs_x.size(0)
+        u_size = inputs_u1.size(0)
+
+        inputs_total = torch.cat([inputs_x, inputs_u1, inputs_u2])
+        pred_total = model(inputs_total)
+        
         with torch.no_grad():
             # compute guessed labels of unlabel samples
-            pred_u1 = model(inputs_u1)
-            pseudo_label = torch.softmax(pred_u1.detach_(), dim=-1)
+            pred_u1 = pred_total[l_size:l_size+u_size]
+            pseudo_label = torch.softmax(pred_u1.detach(), dim=-1)
             max_probs, targets_u = torch.max(pseudo_label, dim=-1)
             mask = max_probs.ge(opts.threshold).float()
 
@@ -464,11 +473,8 @@ def train(opts, train_loader, unlabel_loader, model, criterion, optimizer, epoch
         x_criterion = nn.CrossEntropyLoss().cuda()
         u_criterion = nn.CrossEntropyLoss(reduction='none').cuda()        
 
-        x_pred = model(inputs_x)
-        Lx = x_criterion(x_pred, targets_x)
-        
-        u_pred = model(inputs_u2)
-        Lu = (u_criterion(u_pred, targets_u) * mask).mean()
+        Lx = x_criterion(pred_total[:l_size], targets_x)
+        Lu = (u_criterion(pred_total[l_size+u_size:], targets_u) * mask).mean()
 
         loss = Lx + opts.lambda_u * Lu
         
